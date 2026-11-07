@@ -334,7 +334,7 @@ contract TravaAuditoria is BaseAGL {
         assertEq(t.balanceOf(vitima), sai, "comprou AGL no par v2");
         // venda: AGL para o par -> trava
         vm.prank(vitima);
-        vm.expectRevert(abi.encodeWithSelector(AGL.ContratoNaoPermitido.selector, par));
+        vm.expectRevert(abi.encodeWithSelector(AGL.PoolNaoAutorizada.selector, par));
         t.transfer(par, sai);
     }
 

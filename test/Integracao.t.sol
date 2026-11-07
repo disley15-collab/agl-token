@@ -104,22 +104,15 @@ contract IntegracaoTest is BaseAGL {
         assertEq(pool.cota(), 0, "nada de cota sobrando");
     }
 
-    /// Agregador que recebe o token num contrato intermediário (executor): recusado
-    /// até o guardião liberar aquele contrato.
-    function test_executor_de_agregador_precisa_ser_liberado() public {
+    /// Agregador que recebe o token num contrato intermediário (executor): funciona
+    /// sem liberação (lógica inversa).
+    function test_executor_de_agregador_recebe_sem_liberacao() public {
         _lancar();
         address u = makeAddr("usuario");
         deal(MOEDA, u, _unid(100));
         _swapUR(u, true, uint128(_unid(100)));
         RoteadorPagaAntes executor = new RoteadorPagaAntes(PM); // qualquer contrato
         uint256 r = t.balanceOf(u);
-        vm.prank(u);
-        vm.expectRevert(abi.encodeWithSelector(AGL.ContratoNaoPermitido.selector, address(executor)));
-        t.transfer(address(executor), r);
-        address[] memory l = new address[](1);
-        l[0] = address(executor);
-        vm.prank(DONO);
-        t.permitir(l);
         vm.prank(u);
         t.transfer(address(executor), r);
         assertEq(t.balanceOf(address(executor)), r);

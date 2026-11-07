@@ -202,7 +202,8 @@ contract RegistroTest is BaseAGL {
     }
 
     /// Sem o registro liberado no token, ele não consegue reservar AGL.
-    function test_registro_precisa_estar_liberado_no_token() public {
+    /// O registro recebe AGL sem liberação (lógica inversa).
+    function test_registro_funciona_sem_liberacao() public {
         RegistroAGL r2 = new RegistroAGL(IPoolAGLLeitura(address(pool)), receb, sup, atest, 1);
         vm.prank(sup);
         r2.definirPreco(RegistroAGL.Servico.Contato, _unid(15));
@@ -212,8 +213,8 @@ contract RegistroTest is BaseAGL {
         r2.atestar(c, uint64(block.timestamp + 1 days));
         vm.startPrank(a);
         t.approve(address(r2), type(uint256).max);
-        vm.expectRevert(abi.encodeWithSelector(AGL.ContratoNaoPermitido.selector, address(r2)));
-        r2.pedir(b, RegistroAGL.Servico.Contato, type(uint256).max);
+        uint256 id = r2.pedir(b, RegistroAGL.Servico.Contato, type(uint256).max);
+        assertEq(id, 1);
         vm.stopPrank();
     }
 }

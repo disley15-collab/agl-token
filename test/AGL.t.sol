@@ -33,7 +33,37 @@ contract Sequencia {
     }
 }
 
-/// Simula uma pool v2/v3 qualquer (um contrato que recebe AGL).
+/// Pool falsa: responde token0()/token1() com o AGL (como pools v2/v3 e clones).
+contract PoolFalsaAGL {
+    address public token0;
+    address public token1;
+
+    constructor(address _agl, address _outro) {
+        (token0, token1) = (_outro, _agl);
+    }
+}
+
+/// Pool estilo Curve: coins(i).
+contract PoolCurveAGL {
+    address immutable agl;
+
+    constructor(address _agl) {
+        agl = _agl;
+    }
+
+    function coins(uint256 i) external view returns (address) {
+        return i == 0 ? agl : address(0xdead);
+    }
+}
+
+/// Contrato que responde token0() com lixo (não é endereço): não pode travar a transferência.
+contract RespostaEstranha {
+    function token0() external pure returns (uint256) {
+        return type(uint256).max;
+    }
+}
+
+/// Simula um contrato qualquer (executor de agregador, carteira inteligente...).
 contract PoolQualquer {
     function receber() external { }
 }
@@ -222,10 +252,10 @@ contract AGLTest is BaseAGL {
         uint256 r = _comprar(comprador, _unid(10_000));
         _vender(comprador, r / 2);
         pool.coletarTaxas();
-        PoolQualquer cofre = new PoolQualquer(); // contrato fora da lista do AGL
+        PoolFalsaAGL cofre = new PoolFalsaAGL(address(t), MOEDA); // destino que recusa AGL
         (Currency tk, Currency m) = (pool.token(), pool.moeda());
         vm.startPrank(DONO);
-        vm.expectRevert(abi.encodeWithSelector(AGL.ContratoNaoPermitido.selector, address(cofre)));
+        vm.expectRevert(abi.encodeWithSelector(AGL.PoolNaoAutorizada.selector, address(cofre)));
         pool.sacarTaxas(tk, address(cofre));
         pool.sacarTaxas(m, address(cofre)); // USDC sai normalmente
         pool.sacarTaxas(tk, DONO); // AGL para outro destino
@@ -287,16 +317,57 @@ contract AGLTest is BaseAGL {
         assertGt(r, 0);
     }
 
-    /// Pool v2/v3 (qualquer contrato fora da lista) não recebe AGL.
-    function test_contrato_fora_da_lista_nao_recebe() public {
+    /// Pool v2/v3/clone (token0/token1 = AGL) e pool estilo Curve não recebem AGL.
+    function test_pool_de_terceiro_nao_recebe() public {
         _lancar();
         uint256 r = _comprar(atacante, _unid(100));
-        PoolQualquer pq = new PoolQualquer();
-        vm.prank(atacante);
-        vm.expectRevert(abi.encodeWithSelector(AGL.ContratoNaoPermitido.selector, address(pq)));
-        t.transfer(address(pq), r);
-        // comprar na pool oficial mandando o AGL direto para o contrato também falha
-        assertEq(t.balanceOf(address(pq)), 0);
+        PoolFalsaAGL pf = new PoolFalsaAGL(address(t), MOEDA);
+        PoolCurveAGL pc = new PoolCurveAGL(address(t));
+        vm.startPrank(atacante);
+        vm.expectRevert(abi.encodeWithSelector(AGL.PoolNaoAutorizada.selector, address(pf)));
+        t.transfer(address(pf), r);
+        vm.expectRevert(abi.encodeWithSelector(AGL.PoolNaoAutorizada.selector, address(pc)));
+        t.transfer(address(pc), r);
+        vm.stopPrank();
+    }
+
+    /// Contratos comuns (executor de agregador, carteira inteligente, pool de OUTROS tokens,
+    /// contrato com resposta estranha) recebem AGL sem liberação.
+    function test_contratos_comuns_recebem_sem_liberacao() public {
+        _lancar();
+        uint256 r = _comprar(atacante, _unid(100));
+        PoolQualquer exec = new PoolQualquer();
+        PoolFalsaAGL outra = new PoolFalsaAGL(address(0xbeef), MOEDA); // pool de outros tokens
+        RespostaEstranha est = new RespostaEstranha();
+        vm.startPrank(atacante);
+        t.transfer(address(exec), r / 4);
+        t.transfer(address(outra), r / 4);
+        t.transfer(address(est), r / 4);
+        vm.stopPrank();
+        assertEq(t.balanceOf(address(exec)), r / 4);
+        assertEq(t.balanceOf(address(outra)), r / 4);
+        assertEq(t.balanceOf(address(est)), r / 4);
+    }
+
+    /// Cofres de DEX com taxa livre não recebem AGL (nas redes onde existem).
+    function test_cofres_de_dex_bloqueados() public {
+        _lancar();
+        uint256 r = _comprar(atacante, _unid(100));
+        address[4] memory cofres = [
+            0x238a358808379702088667322f80aC48bAd5e6c4,
+            0xBA12222222228d8Ba445958a75a0704d566BF2C8,
+            0xbA1333333333a1BA1108E8412f11850A5C319bA9,
+            0xe0e0e08A6A4b9Dc7bD67BCB7aadE5cF48157d444
+        ];
+        uint256 testados;
+        for (uint256 i; i < 4; i++) {
+            if (cofres[i].code.length == 0) continue;
+            testados++;
+            vm.prank(atacante);
+            vm.expectRevert(abi.encodeWithSelector(AGL.CofreDeDexBloqueado.selector, cofres[i]));
+            t.transfer(cofres[i], r);
+        }
+        assertGt(testados, 0, "toda rede tem ao menos um cofre");
     }
 
     /// Carteira comum e carteira EIP-7702 recebem normalmente.
@@ -313,10 +384,10 @@ contract AGLTest is BaseAGL {
         assertEq(t.balanceOf(delegada), r / 4);
     }
 
-    /// Guardião só ADICIONA à lista; não tem como bloquear ninguém.
+    /// Guardião só ADICIONA à lista (ex.: a pool v3 do próprio emissor); não bloqueia ninguém.
     function test_guardiao_so_adiciona() public {
         _lancar();
-        PoolQualquer pq = new PoolQualquer();
+        PoolFalsaAGL pq = new PoolFalsaAGL(address(t), MOEDA);
         address[] memory p = new address[](1);
         p[0] = address(pq);
         vm.prank(atacante);

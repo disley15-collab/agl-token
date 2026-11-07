@@ -55,14 +55,14 @@ contract AGLConfidencialTest is BaseAGL {
         assertEq(t.balanceOf(address(c)), (r / 1e9) * 1e9, "AGL publico continua no cofre");
     }
 
-    /// Sem estar liberado pelo guardião do AGL, o cofre não recebe AGL.
-    function test_cofre_precisa_estar_liberado() public {
+    /// O cofre cAGL recebe AGL sem liberação (lógica inversa).
+    function test_cofre_funciona_sem_liberacao() public {
         AGLConfidencial c2 = new AGLConfidencial(t);
         uint256 r = _comprar(ana, _unid(10));
         vm.startPrank(ana);
         t.approve(address(c2), r);
-        vm.expectRevert(abi.encodeWithSelector(AGL.ContratoNaoPermitido.selector, address(c2)));
         c2.wrap(ana, r);
+        assertEq(t.balanceOf(address(c2)), (r / 1e9) * 1e9);
         vm.stopPrank();
     }
 
