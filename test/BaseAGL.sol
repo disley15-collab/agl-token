@@ -61,7 +61,7 @@ abstract contract BaseAGL is Test {
     }
 
     function _publicarPool() internal returns (PoolAGL) {
-        bytes memory init = abi.encodePacked(type(PoolAGL).creationCode, abi.encode(PM, DEPLOYER, MOEDA, DONO));
+        bytes memory init = abi.encodePacked(type(PoolAGL).creationCode, abi.encode(PM, DEPLOYER, MOEDA, DONO, DONO));
         vm.prank(DEPLOYER);
         return PoolAGL(ICreateX(CREATEX).deployCreate3(SALT_POOL, init));
     }
@@ -80,7 +80,7 @@ abstract contract BaseAGL is Test {
         string[] memory c = new string[](10);
         (c[0], c[1], c[2], c[3]) = ("python3", "script/escada.py", "--token", vm.toString(_token));
         (c[4], c[5], c[6], c[7]) = ("--moeda", vm.toString(MOEDA), "--casas-moeda", vm.toString(uint256(casasMoeda)));
-        (c[8], c[9]) = ("--chainid", vm.toString(chainid));
+        (c[8], c[9]) = ("--degraus", "20");
         return string(vm.ffi(c));
     }
 

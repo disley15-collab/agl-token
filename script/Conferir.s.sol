@@ -33,7 +33,7 @@ contract Conferir is Script {
         address dono = 0x979514BddD0346FdD218c49B8242b92C1A6D0ffC;
 
         _c(address(pool).code.length > 0, "pool sem codigo");
-        _c(uint160(address(pool)) & Hooks.ALL_HOOK_MASK == (Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG), "bits de hook");
+        _c(uint160(address(pool)) & Hooks.ALL_HOOK_MASK == (Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.AFTER_SWAP_FLAG), "bits de hook");
         _c(address(pool.poolManager()) == address(pm), "poolManager");
         _c(pool.lancador() == vm.envAddress("DEPLOYER"), "lancador");
         _c(Currency.unwrap(pool.moeda()) == vm.envAddress("MOEDA"), "moeda");
@@ -44,10 +44,13 @@ contract Conferir is Script {
         _c(keccak256(bytes(t.symbol())) == keccak256("AGL"), "simbolo");
         _c(keccak256(bytes(t.name())) == keccak256("AgroLastro"), "nome");
         _c(t.decimals() == 9, "casas");
-        uint256 parte = t.supplyDaRede(block.chainid);
+        uint256 parte = t.SUPPLY_POR_REDE();
+        _c(parte == 1e30, "1 sextilhao");
         _c(t.totalSupply() == parte, "supply");
-        _c(t.DONO() == dono, "DONO no token");
-        _c(t.balanceOf(dono) >= parte * 5 / 100, "5% do dono");
+        _c(t.guardiao() == dono, "guardiao");
+        _c(address(t.pool()) == address(pool), "pool no token");
+        _c(t.poolManager() == address(pm), "poolManager no token");
+        _c(t.redeAceita(block.chainid), "rede aceita");
         _c(pool.tokenEhMoeda0() == vm.parseJsonBool(json, ".tokenEhMoeda0"), "ordem do par");
         PoolKey memory k = pool.chave();
         _c(k.fee == 20_000 && k.tickSpacing == 10 && address(k.hooks) == address(pool), "chave");
@@ -64,7 +67,7 @@ contract Conferir is Script {
             _c(pm.getPositionLiquidity(k.toId(), pos) > 0, "degrau sem liquidez");
             soma += fx[i].quantidade;
         }
-        _c(soma == parte - parte * 5 / 100, "escada = 95%");
+        _c(soma == parte, "escada = 100%");
         _c(t.balanceOf(address(pool)) < soma / 1e9, "poeira");
         console2.log("checagens OK:", ok);
     }

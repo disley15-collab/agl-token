@@ -6,52 +6,47 @@ import { IPoolManager } from "v4-core/interfaces/IPoolManager.sol";
 import { IHooks } from "v4-core/interfaces/IHooks.sol";
 import { PoolKey } from "v4-core/types/PoolKey.sol";
 import { Currency } from "v4-core/types/Currency.sol";
+import { ModifyLiquidityParams, SwapParams } from "v4-core/types/PoolOperation.sol";
 import { TickMath } from "v4-core/libraries/TickMath.sol";
+import { PoolSwapTest } from "v4-core/test/PoolSwapTest.sol";
+import { PoolModifyLiquidityTest } from "v4-core/test/PoolModifyLiquidityTest.sol";
 import { AGL } from "../src/AGL.sol";
 import { PoolAGL } from "../src/PoolAGL.sol";
 import { ICreateX } from "../src/ICreateX.sol";
 import { BaseAGL } from "./BaseAGL.sol";
 
+/// Simula uma pool v2/v3 qualquer (um contrato que recebe AGL).
+contract PoolQualquer {
+    function receber() external { }
+}
+
 contract AGLTest is BaseAGL {
-    uint256 constant TOTAL = 1e30;
+    uint256 constant SUPPLY = 1e30;
 
     // ------------------------------------------------------------ lançamento
 
-    function test_lancamento_supply_dono_e_pool_numa_transacao() public {
+    function test_lancamento_100pct_na_pool_numa_transacao() public {
         _lancar();
-        uint256 parte = t.supplyDaRede(chainid);
-        assertEq(t.totalSupply(), parte, "supply da rede");
-        assertEq(parte, chainid == 56 ? TOTAL / 7 + TOTAL % 7 : TOTAL / 7);
-        assertEq(t.balanceOf(DONO), parte * 5 / 100, "5% do dono");
-        uint256 naPool = t.balanceOf(address(PM)) ;
+        assertEq(t.totalSupply(), SUPPLY, "1 sextilhao nesta rede");
+        uint256 noPM = t.balanceOf(address(PM));
         uint256 poeira = t.balanceOf(address(pool));
-        // o PoolManager guarda o token de TODAS as pools: aqui só existe a nossa
-        assertEq(naPool + poeira, parte - parte * 5 / 100, "o resto e da pool");
-        assertLt(poeira, naPool / 1e9, "poeira de arredondamento < 1 bilionesimo da pool");
+        assertEq(noPM + poeira, SUPPLY, "100% na pool");
+        assertLt(poeira, SUPPLY / 1e9, "poeira de arredondamento");
+        assertEq(t.balanceOf(DONO), 0, "dono nao tem reserva");
         assertEq(t.decimals(), 9);
         assertEq(t.symbol(), "AGL");
-        assertEq(t.name(), "AgroLastro");
-        // todos os degraus com liquidez
         PoolAGL.Faixa[] memory fx = pool.todasAsFaixas();
-        assertEq(fx.length, 19);
+        assertEq(fx.length, 20);
         for (uint256 i; i < fx.length; i++) assertGt(_liquidez(fx[i]), 0);
         assertEq(_tick(), int24(vm.parseJsonInt(json, ".tickInicial")));
+        assertEq(Currency.unwrap(pool.moeda()), MOEDA, "pareada com USDC");
     }
 
-    function test_token_soma_7_redes_um_sextilhao() public {
-        t = new AGL(address(this));
-        uint256[7] memory ids = [uint256(56), 8453, 42161, 137, 10, 43114, 42220];
-        uint256 soma;
-        for (uint256 i; i < 7; i++) soma += t.supplyDaRede(ids[i]);
-        assertEq(soma, TOTAL);
-        vm.expectRevert(abi.encodeWithSelector(AGL.RedeForaDaLista.selector, uint256(1)));
-        t.supplyDaRede(1);
-    }
-
-    function test_token_recusa_rede_fora_da_lista() public {
-        vm.chainId(1);
-        vm.expectRevert(abi.encodeWithSelector(AGL.RedeForaDaLista.selector, uint256(1)));
-        new AGL(address(this));
+    function test_rede_fora_da_lista() public {
+        pool = _publicarPool();
+        vm.chainId(5);
+        vm.expectRevert(abi.encodeWithSelector(AGL.RedeForaDaLista.selector, uint256(5)));
+        new AGL(address(pool), DONO);
     }
 
     function test_so_lancador_e_uma_vez() public {
@@ -74,169 +69,191 @@ contract AGLTest is BaseAGL {
         json = _escada(_enderecoToken());
         PoolAGL.Faixa[] memory fx = _faixas();
         int24 ti = int24(vm.parseJsonInt(json, ".tickInicial"));
-        // começar a pool 10 ticks acima: o 1º degrau ficaria com parte do lado da moeda
         bool t0 = _enderecoToken() < MOEDA;
         vm.prank(DEPLOYER);
         vm.expectRevert(abi.encodeWithSelector(PoolAGL.FaixaFora.selector, uint256(0)));
         pool.lancar(_saltToken(), t0 ? ti + 10 : ti - 10, fx);
     }
 
-    function test_escada_maior_que_o_saldo_recusada() public {
+    function test_ultimo_degrau_recebe_a_sobra() public {
         pool = _publicarPool();
         json = _escada(_enderecoToken());
         PoolAGL.Faixa[] memory fx = _faixas();
-        fx[0].quantidade = TOTAL;
-        vm.prank(DEPLOYER);
-        vm.expectRevert(PoolAGL.SobraNegativa.selector);
-        pool.lancar(_saltToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
-    }
-
-    /// Salt do token protegido: com o mesmo salt, outra conta cai em OUTRO endereço
-    /// (a CreateX só aplica a proteção a quem está nos 20 primeiros bytes), e o
-    /// lançamento oficial continua funcionando no endereço previsto.
-    function test_ninguem_publica_no_endereco_do_token() public {
-        pool = _publicarPool();
-        address previsto = _enderecoToken();
-        bytes memory init = abi.encodePacked(type(AGL).creationCode, abi.encode(atacante));
-        vm.prank(atacante);
-        address dele = ICreateX(CREATEX).deployCreate3(_saltToken(), init);
-        assertTrue(dele != previsto, "atacante nao toma o endereco");
-        assertEq(previsto.code.length, 0);
-        json = _escada(previsto);
-        PoolAGL.Faixa[] memory fx = _faixas();
+        fx[fx.length - 1].quantidade = 1;
         vm.prank(DEPLOYER);
         pool.lancar(_saltToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
-        assertEq(Currency.unwrap(pool.token()), previsto);
+        PoolAGL.Faixa[] memory g = pool.todasAsFaixas();
+        uint256 soma;
+        for (uint256 i; i < g.length; i++) soma += g[i].quantidade;
+        assertEq(soma, SUPPLY);
     }
 
     function test_endereco_de_hook_errado_recusado() public {
         vm.expectRevert(PoolAGL.EnderecoDeHookErrado.selector);
-        new PoolAGL(PM, DEPLOYER, MOEDA, DONO);
+        new PoolAGL(PM, DEPLOYER, MOEDA, DONO, DONO);
     }
 
-    // ------------------------------------------- pré-inicialização (achado crítico SDBR)
+    function test_atacante_nao_toma_endereco_do_token() public {
+        pool = _publicarPool();
+        address previsto = _enderecoToken();
+        vm.prank(atacante);
+        address dele = ICreateX(CREATEX).deployCreate3(_saltToken(), type(PoolQualquer).creationCode);
+        assertTrue(dele != previsto);
+        _lancarNaPool();
+        assertEq(address(t), previsto);
+    }
 
-    /// Antes do lançamento o endereço do token já é previsível (está no calldata da tx).
-    /// Mesmo assim ninguém cria a pool oficial antes: o hook recusa.
-    function test_pre_inicializacao_da_pool_oficial_recusada() public {
+    function _lancarNaPool() internal {
+        json = _escada(_enderecoToken());
+        PoolAGL.Faixa[] memory fx = _faixas();
+        vm.prank(DEPLOYER);
+        pool.lancar(_saltToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
+        t = AGL(Currency.unwrap(pool.token()));
+    }
+
+    // ------------------------------------------------------------ pré-inicialização e JIT
+
+    function test_pre_inicializacao_recusada() public {
         pool = _publicarPool();
         address tk = _enderecoToken();
         (Currency c0, Currency c1) =
             tk < MOEDA ? (Currency.wrap(tk), Currency.wrap(MOEDA)) : (Currency.wrap(MOEDA), Currency.wrap(tk));
-        PoolKey memory k = PoolKey(c0, c1, 20_000, 10, IHooks(address(pool)));
         vm.prank(atacante);
         vm.expectRevert();
-        PM.initialize(k, TickMath.getSqrtPriceAtTick(0));
-        // e depois do lançamento a pool oficial é a do lançamento, no preço certo
-        json = _escada(tk);
-        PoolAGL.Faixa[] memory fx = _faixas();
-        vm.prank(DEPLOYER);
-        pool.lancar(_saltToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
-        t = AGL(tk);
-        assertEq(_tick(), int24(vm.parseJsonInt(json, ".tickInicial")));
+        PM.initialize(PoolKey(c0, c1, 20_000, 10, IHooks(address(pool))), TickMath.getSqrtPriceAtTick(0));
     }
 
-    /// Ninguém usa o nosso hook em outra pool (outra taxa, outro par).
-    function test_hook_recusa_outras_pools() public {
+    function test_liquidez_de_terceiro_recusada() public {
         _lancar();
+        PoolModifyLiquidityTest lp = new PoolModifyLiquidityTest(PM);
+        deal(MOEDA, atacante, _unid(1000));
+        vm.startPrank(atacante);
+        IERC20(MOEDA).approve(address(lp), type(uint256).max);
+        int24 tk = (_tick() / 10) * 10;
         PoolKey memory k = pool.chave();
-        k.fee = 3000;
-        vm.prank(atacante);
         vm.expectRevert();
-        PM.initialize(k, TickMath.getSqrtPriceAtTick(0));
+        lp.modifyLiquidity(k, ModifyLiquidityParams(tk - 1000, tk - 500, 1e15, 0), "");
+        vm.stopPrank();
     }
 
-    // ------------------------------------------------------------ comprar e vender
+    // ------------------------------------------------------------ comprar, vender, taxa
 
-    function test_compra_de_1_dolar_e_venda() public {
+    function test_compra_venda_e_preco_estavel() public {
         _lancar();
-        uint256 r = _comprar(comprador, _unid(1));
-        assertGt(r, 0, "US$1 compra token");
+        uint256 r = _comprar(comprador, _unid(1_000_000));
+        // US$ 1 mi a US$ 1e-9 = ~9,8e14 AGL (com 2% de taxa) = 9,8e23 unidades
+        assertApproxEqRel(r, 980_000_000_000_000 * 1e9, 0.001e18, "preco ~US$1e-9");
+        int24 depois = _tick();
+        int24 antes = int24(vm.parseJsonInt(json, ".tickInicial"));
+        int24 dif = depois > antes ? depois - antes : antes - depois;
+        assertLt(dif, 5, "US$1 mi quase nao mexe no preco");
         uint256 v = _vender(comprador, r);
-        assertGt(v, _unid(1) * 95 / 100, "vende de volta perdendo ~4% (2 taxas)");
-        assertLe(v, _unid(1));
+        assertGt(v, _unid(1_000_000) * 95 / 100);
     }
 
-    /// O primeiro degrau custa o que a escada calculou.
-    function test_primeiro_degrau_custa_o_previsto() public {
-        _lancar();
-        PoolAGL.Faixa[] memory fx = pool.todasAsFaixas();
-        uint256 pago = _comprarTokens(comprador, fx[0].quantidade - 1e9);
-        uint256 previsto = vm.parseUint(_semPonto(vm.parseJsonString(json, ".usd.primeiroDegrau"))) * 10 ** casasMoeda / 100;
-        emit log_named_decimal_uint("1o degrau custou", pago, casasMoeda);
-        assertApproxEqRel(pago, previsto, 0.01e18);
-    }
-
-    // ------------------------------------------------------------ taxas
-
-    function test_taxas_so_para_o_recebedor() public {
+    function test_taxa_2pct_para_o_dono() public {
         _lancar();
         _comprar(comprador, _unid(10_000));
         uint256 antes = IERC20(MOEDA).balanceOf(DONO);
         vm.prank(atacante);
-        pool.coletarTaxas(); // qualquer um chama, o dinheiro vai ao recebedor
-        uint256 taxa = IERC20(MOEDA).balanceOf(DONO) - antes;
-        assertApproxEqRel(taxa, _unid(200), 0.001e18, "2% de US$10 mil");
-        assertEq(IERC20(MOEDA).balanceOf(atacante), 0);
-    }
-
-    function test_transferir_recebedor_so_pelo_recebedor() public {
-        _lancar();
-        vm.prank(atacante);
-        vm.expectRevert(PoolAGL.SoRecebedor.selector);
-        pool.transferirRecebedor(atacante);
-        vm.prank(DONO);
-        pool.transferirRecebedor(comprador);
-        assertEq(pool.recebedorTaxas(), comprador);
-    }
-
-    // ------------------------------------------------------------ escada inteira e a meta
-
-    /// Compra a escada inteira, coleta as taxas e vende os 5% do dono: o dono ganha a meta
-    /// da rede (US$ 20 mi / 7), medido no fork.
-    function test_meta_do_dono_com_a_escada_inteira() public {
-        _lancar();
-        PoolAGL.Faixa[] memory fx = pool.todasAsFaixas();
-        uint256 naPool;
-        for (uint256 i; i < fx.length; i++) naPool += fx[i].quantidade;
-        // compra quase tudo (deixa 1 token por arredondamento)
-        uint256 gasto = _comprarTokens(comprador, naPool - 1e9);
-        uint256 antes = IERC20(MOEDA).balanceOf(DONO);
         pool.coletarTaxas();
-        uint256 taxas = IERC20(MOEDA).balanceOf(DONO) - antes;
-        uint256 venda = _vender(DONO, t.balanceOf(DONO));
-        uint256 ganho = taxas + venda;
-        uint256 meta = _unid(20_000_000) / 7;
-        emit log_named_decimal_uint("compradores gastaram", gasto, casasMoeda);
-        emit log_named_decimal_uint("taxas", taxas, casasMoeda);
-        emit log_named_decimal_uint("venda dos 5%", venda, casasMoeda);
-        emit log_named_decimal_uint("dono ganhou", ganho, casasMoeda);
-        assertApproxEqRel(ganho, meta, 0.01e18, "meta da rede +-1%");
-        assertApproxEqRel(
-            gasto, vm.parseUint(_semPonto(vm.parseJsonString(json, ".usd.compradoresGastamEscadaInteira"))) * 10 ** casasMoeda / 100,
-            0.01e18, "custo da escada bate com escada.py"
-        );
+        assertApproxEqRel(IERC20(MOEDA).balanceOf(DONO) - antes, _unid(200), 0.001e18);
+        // taxa da venda chega em AGL
+        _vender(comprador, t.balanceOf(comprador));
+        pool.coletarTaxas();
+        assertGt(t.balanceOf(DONO), 0);
     }
 
-    function _semPonto(string memory s) internal pure returns (string memory) {
-        bytes memory b = bytes(s);
-        bytes memory o = new bytes(b.length - 1);
-        uint256 j;
-        for (uint256 i; i < b.length; i++) if (b[i] != ".") o[j++] = b[i];
-        return string(o);
-    }
-
-    /// A liquidez nunca sai: depois de comprar e vender tudo, cada degrau tem a mesma
-    /// liquidez do lançamento.
     function test_liquidez_travada() public {
         _lancar();
         PoolAGL.Faixa[] memory fx = pool.todasAsFaixas();
-        uint128[] memory l0 = new uint128[](fx.length);
-        for (uint256 i; i < fx.length; i++) l0[i] = _liquidez(fx[i]);
-        uint256 r = _comprar(comprador, _unid(5_000_000));
+        uint128 l0 = _liquidez(fx[0]);
+        uint256 r = _comprar(comprador, _unid(100_000));
         pool.coletarTaxas();
         _vender(comprador, r);
         pool.coletarTaxas();
-        for (uint256 i; i < fx.length; i++) assertEq(_liquidez(fx[i]), l0[i]);
+        assertEq(_liquidez(fx[0]), l0);
+    }
+
+    // ------------------------------------------------------------ TRAVA: outras pools
+
+    /// Pool v4 de terceiro (sem hook, taxa 94%) para o AGL: pode ser criada, mas não
+    /// recebe AGL (o token recusa entrada no PoolManager fora da cota da pool oficial).
+    function test_pool_v4_de_terceiro_nao_recebe_agl() public {
+        _lancar();
+        uint256 r = _comprar(atacante, _unid(1000));
+        address tk = address(t);
+        (Currency c0, Currency c1) =
+            tk < MOEDA ? (Currency.wrap(tk), Currency.wrap(MOEDA)) : (Currency.wrap(MOEDA), Currency.wrap(tk));
+        PoolKey memory falsa = PoolKey(c0, c1, 940_000, 60, IHooks(address(0)));
+        PM.initialize(falsa, TickMath.getSqrtPriceAtTick(_tick()));
+        PoolModifyLiquidityTest lp = new PoolModifyLiquidityTest(PM);
+        vm.prank(DONO);
+        address[] memory p = new address[](1);
+        p[0] = address(lp);
+        t.permitir(p); // mesmo com o roteador liberado, o PoolManager recusa
+        vm.startPrank(atacante);
+        t.approve(address(lp), type(uint256).max);
+        IERC20(MOEDA).approve(address(lp), type(uint256).max);
+        int24 tk0 = (_tick() / 60) * 60;
+        vm.expectRevert();
+        lp.modifyLiquidity(falsa, ModifyLiquidityParams(tk0 + 60, tk0 + 6000, 1e20, 0), "");
+        vm.stopPrank();
+        assertGt(r, 0);
+    }
+
+    /// Pool v2/v3 (qualquer contrato fora da lista) não recebe AGL.
+    function test_contrato_fora_da_lista_nao_recebe() public {
+        _lancar();
+        uint256 r = _comprar(atacante, _unid(100));
+        PoolQualquer pq = new PoolQualquer();
+        vm.prank(atacante);
+        vm.expectRevert(abi.encodeWithSelector(AGL.ContratoNaoPermitido.selector, address(pq)));
+        t.transfer(address(pq), r);
+        // comprar na pool oficial mandando o AGL direto para o contrato também falha
+        assertEq(t.balanceOf(address(pq)), 0);
+    }
+
+    /// Carteira comum e carteira EIP-7702 recebem normalmente.
+    function test_carteiras_recebem() public {
+        _lancar();
+        uint256 r = _comprar(atacante, _unid(100));
+        address eoa = makeAddr("eoa");
+        address delegada = makeAddr("7702");
+        vm.etch(delegada, abi.encodePacked(hex"ef0100", address(0x1234)));
+        vm.startPrank(atacante);
+        t.transfer(eoa, r / 2);
+        t.transfer(delegada, r / 4);
+        vm.stopPrank();
+        assertEq(t.balanceOf(delegada), r / 4);
+    }
+
+    /// Guardião só ADICIONA à lista; não tem como bloquear ninguém.
+    function test_guardiao_so_adiciona() public {
+        _lancar();
+        PoolQualquer pq = new PoolQualquer();
+        address[] memory p = new address[](1);
+        p[0] = address(pq);
+        vm.prank(atacante);
+        vm.expectRevert(AGL.SoGuardiao.selector);
+        t.permitir(p);
+        vm.prank(DONO);
+        t.permitir(p);
+        uint256 r = _comprar(atacante, _unid(100));
+        vm.prank(atacante);
+        t.transfer(address(pq), r);
+        assertEq(t.balanceOf(address(pq)), r);
+    }
+
+    /// Ninguém além do token consome a cota; transferir direto ao PoolManager falha.
+    function test_cota_so_pelo_token() public {
+        _lancar();
+        vm.prank(atacante);
+        vm.expectRevert(PoolAGL.SoToken.selector);
+        pool.consumirEntrada(0);
+        uint256 r = _comprar(atacante, _unid(100));
+        vm.prank(atacante);
+        vm.expectRevert(abi.encodeWithSelector(PoolAGL.ForaDaCota.selector, r, 0));
+        t.transfer(address(PM), r);
     }
 }

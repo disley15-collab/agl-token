@@ -29,7 +29,7 @@ contract Publicar is Script {
         vm.startBroadcast(pk);
         PoolAGL pool;
         if (previsto.code.length == 0) {
-            bytes memory init = abi.encodePacked(type(PoolAGL).creationCode, abi.encode(IPoolManager(pm), eu, moeda, dono));
+            bytes memory init = abi.encodePacked(type(PoolAGL).creationCode, abi.encode(IPoolManager(pm), eu, moeda, dono, dono));
             pool = PoolAGL(ICreateX(CREATEX).deployCreate3(saltPool, init));
         } else {
             pool = PoolAGL(previsto);

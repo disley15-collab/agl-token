@@ -10,7 +10,7 @@ PK=${AGL_PK:-$(cat ~/credenciais/agl-deployer.key)}
 SALT_POOL=$(python3 -c "import json;print(json.load(open('script/salt-pool.json'))['salt'])")
 SALT_TOKEN=$(python3 -c "import json;print(json.load(open('script/salt-token.json'))['salt'])")
 TOKEN=$(python3 -c "import json;print(json.load(open('script/salt-token.json'))['endereco'])")
-python3 script/escada.py --token $TOKEN --moeda $moeda --casas-moeda $casas --chainid $id > script/escada-$REDE.json
+python3 script/escada.py --token $TOKEN --moeda $moeda --casas-moeda $casas > script/escada-$REDE.json
 AGL_PK=$PK SALT_POOL=$SALT_POOL SALT_TOKEN=$SALT_TOKEN PM=$pm MOEDA=$moeda DONO=0x979514BddD0346FdD218c49B8242b92C1A6D0ffC \
   ESCADA=script/escada-$REDE.json forge script script/Publicar.s.sol --rpc-url $R --broadcast --slow -q > publicacao-$REDE.log 2>&1
 echo "[$REDE] forge script: código $?"
