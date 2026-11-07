@@ -3,3 +3,5 @@ cache/
 lib
 node_modules
 broadcast/
+publicacao-*.log
+script/escada-*.json
