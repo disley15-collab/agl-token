@@ -1,0 +1,40 @@
+[profile.default]
+src = "src"
+out = "out"
+test = "test"
+libs = ["lib", "node_modules"]
+solc_version = "0.8.26"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+via_ir = true
+bytecode_hash = "none"
+cbor_metadata = false
+fs_permissions = [{ access = "read", path = "./" }]
+ffi = true
+remappings = [
+  "forge-std/=lib/forge-std/src/",
+  "v4-core/=lib/v4-core/src/",
+  "v4-periphery/=lib/v4-periphery/src/",
+  "@uniswap/v4-core/=lib/v4-core/",
+  "@layerzerolabs/=node_modules/@layerzerolabs/",
+  "@openzeppelin/=node_modules/@openzeppelin/",
+  "solidity-bytes-utils/=node_modules/solidity-bytes-utils/",
+]
+
+[rpc_endpoints]
+bsc = "https://bsc-mainnet.public.blastapi.io"
+base = "https://mainnet.base.org"
+arbitrum = "https://arb1.arbitrum.io/rpc"
+polygon = "https://polygon.drpc.org"
+optimism = "https://mainnet.optimism.io"
+avalanche = "https://api.avax.network/ext/bc/C/rpc"
+celo = "https://forno.celo.org"
+
+[profile.default.fuzz]
+runs = 64
+
+[profile.default.invariant]
+runs = 12
+depth = 25
+fail_on_revert = true
