@@ -13,6 +13,10 @@ import { AGL } from "../src/AGL.sol";
 import { PoolAGL } from "../src/PoolAGL.sol";
 import { BaseAGL } from "./BaseAGL.sol";
 
+interface ILzEndpointConfig {
+    function setSendLibrary(address oapp, uint32 eid, address lib) external;
+}
+
 /// Pool falsa no destino (token0/token1 = AGL).
 contract PoolFalsaDestino {
     address public token0;
@@ -185,6 +189,31 @@ contract PonteTest is BaseAGL {
         vm.prank(EP);
         vm.expectRevert(abi.encodeWithSelector(AGL.PoolNaoAutorizada.selector, address(pf)));
         d.t.lzReceive(Origin(o.eid, bytes32(uint256(uint160(address(o.t)))), 1), bytes32(uint256(1)), m, address(0), "");
+    }
+
+    /// Etapa 3: depois da renúncia ninguém muda a ponte (nem a carteira de publicação), e a
+    /// ponte continua funcionando.
+    function test_renuncia_trava_a_ponte_e_ela_segue_funcionando() public {
+        _usar(o);
+        vm.startPrank(DEPLOYER);
+        o.t.setDelegate(address(0));
+        o.t.renounceOwnership();
+        vm.stopPrank();
+        assertEq(o.t.owner(), address(0));
+        uint32[] memory e = new uint32[](1);
+        e[0] = 30999;
+        vm.prank(DEPLOYER);
+        vm.expectRevert();
+        o.t.ligarRedesEVM(e);
+        // configuração do endpoint também não muda mais
+        vm.prank(DEPLOYER);
+        vm.expectRevert();
+        ILzEndpointConfig(EP).setSendLibrary(address(o.t), d.eid, address(0x1234));
+        // e a ponte segue: envia e entrega
+        uint256 v = (_comprar(viajante, _unid(100)) / 1e9) * 1e9;
+        (bytes memory m,) = _enviar(viajante, v);
+        _entregar(m, 1);
+        assertEq(d.t.balanceOf(viajante), v);
     }
 
     /// Só o dono da ponte liga redes e muda opções.

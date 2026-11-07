@@ -2,7 +2,6 @@
 pragma solidity ^0.8.26;
 
 import { Script, console2 } from "forge-std/Script.sol";
-import { TimelockController } from "@openzeppelin/contracts/governance/TimelockController.sol";
 import { ILayerZeroEndpointV2 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import { SetConfigParam } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/IMessageLibManager.sol";
 import { UlnConfig } from "@layerzerolabs/lz-evm-messagelib-v2/contracts/uln/UlnBase.sol";
@@ -28,9 +27,10 @@ interface IUlnLeitura {
 ///   3. RegistroAGL e EscrowAGL pela CreateX (mesmo endereço em toda rede);
 ///   4. libera o Registro no token e define os preços dos serviços;
 ///   5. entrega guardião do token e supervisor do Registro ao DONO;
-///   6. ponte LayerZero (igual ao SDBR): liga as outras 7 redes, FIXA bibliotecas,
-///      verificadores, executor e gás de entrega, e entrega dono + delegate da ponte a um
-///      Timelock de 7 dias (o DONO propõe; qualquer um executa depois do prazo).
+///   6. (etapa 2) ponte LayerZero: liga as outras 7 redes e FIXA bibliotecas, verificadores,
+///      executor e gás de entrega;
+///   7. (etapa 3) renuncia à ponte: delegate = 0 e dono = 0. Ninguém muda mais a ponte nem
+///      cria AGL fora dela.
 /// A carteira de publicação começa como guardião/supervisor só para os passos 4 e 5.
 /// env: EIDS (as outras redes, por vírgula), AGL_PK, SALT_POOL, SALT_TOKEN, SALT_REGISTRO, SALT_ESCROW, SALT_CAGL (Ethereum), PM, MOEDA, CASAS_MOEDA, ESCADA
 contract Publicar is Script {
@@ -39,7 +39,6 @@ contract Publicar is Script {
     uint256 constant TAXA_COMPRADOR_BPS = 100; // 1%
     uint256 constant TAXA_VENDEDOR_BPS = 200; // 2%
     address constant EP = 0x1a44076050125825900e736c501f859c50fE728c;
-    uint256 constant ATRASO_TIMELOCK = 7 days;
     uint128 constant GAS_ENTREGA = 300_000; // mint + sondas da trava (auditoria: até ~220k em contrato pesado)
     uint8 constant NIL_DVN = type(uint8).max;
 
@@ -123,21 +122,28 @@ contract Publicar is Script {
             reg.trocarSupervisor(DONO);
         }
         if (t.guardiao() == eu) t.trocarGuardiao(DONO);
-        // 6. ponte — só na 2ª etapa (LIGAR_PONTE=1), depois que as 8 redes foram publicadas e
-        //    conferidas: antes disso a chave de publicação poria um AGL falso numa rede ainda vazia
+        // 6. ponte — ETAPA 2 (LIGAR_PONTE=1), só depois que as 8 redes passaram na etapa 1:
+        //    antes disso a chave de publicação poria um AGL falso numa rede ainda vazia.
         if (vm.envOr("LIGAR_PONTE", false) && t.owner() == eu) {
             uint256[] memory outras = vm.envUint("EIDS", ",");
             uint32[] memory eids = new uint32[](outras.length);
             for (uint256 i; i < outras.length; i++) eids[i] = uint32(outras[i]);
             if (!_redesLigadas(t, eids)) t.ligarRedesEVM(eids);
             _fixarPonte(t, eids);
-            address[] memory propoe = new address[](1);
-            propoe[0] = DONO;
-            address[] memory executa = new address[](1); // address(0) = qualquer um, depois do prazo
-            TimelockController tl = new TimelockController(ATRASO_TIMELOCK, propoe, executa, address(0));
-            t.setDelegate(address(tl));
-            t.transferOwnership(address(tl));
-            console2.log("timelock", address(tl));
+        }
+        // 7. ETAPA 3 (RENUNCIAR=1), depois do envio real de teste entre redes: ninguém mais
+        //    muda a ponte (decisão do dono, 07/11). Delegate primeiro, depois o dono.
+        if (vm.envOr("RENUNCIAR", false) && t.owner() == eu) {
+            uint256[] memory outras = vm.envUint("EIDS", ",");
+            ILayerZeroEndpointV2 ep = ILayerZeroEndpointV2(EP);
+            for (uint256 i; i < outras.length; i++) {
+                uint32 e = uint32(outras[i]);
+                require(t.peers(e) == bytes32(uint256(uint160(address(t)))), "ponte nao ligada");
+                require(!ep.isDefaultSendLibrary(address(t), e), "ponte nao fixada");
+            }
+            t.setDelegate(address(0));
+            t.renounceOwnership();
+            console2.log("ponte renunciada");
         }
         vm.stopBroadcast();
         console2.log("pool/hook", pPool);
@@ -154,7 +160,7 @@ contract Publicar is Script {
     }
 
     /// Grava explicitamente a configuração que hoje é o padrão da LayerZero (igual ao SDBR):
-    /// mudança futura no padrão deles não afeta o AGL; só o Timelock muda.
+    /// mudança futura no padrão deles não afeta o AGL; depois da renúncia (etapa 3) ninguém muda.
     function _fixarPonte(AGL _t, uint32[] memory _eids) internal {
         ILayerZeroEndpointV2 ep = ILayerZeroEndpointV2(EP);
         EnforcedOptionParam[] memory opts = new EnforcedOptionParam[](_eids.length * 2);

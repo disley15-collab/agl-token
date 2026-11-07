@@ -15,7 +15,6 @@ import { AGL } from "../src/AGL.sol";
 import { PoolAGL } from "../src/PoolAGL.sol";
 import { RegistroAGL } from "../src/RegistroAGL.sol";
 import { EscrowAGL } from "../src/EscrowAGL.sol";
-import { TimelockController } from "@openzeppelin/contracts/governance/TimelockController.sol";
 import { ILayerZeroEndpointV2 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 
 interface IDelegates {
@@ -111,33 +110,26 @@ contract Conferir is Script {
         _c(esc.moedaAceita(vm.envAddress("MOEDA")), "moeda aceita");
         if (vm.envOr("RECEM_PUBLICADO", true)) _c(esc.totalOrdens() == 0, "escrow sem ordens");
         _c(address(reg).code.length > 0 && t.permitido(address(pool)), "pool liberada no token");
-        // ponte (etapa 2): só quando TIMELOCK é informado
-        if (vm.envOr("TIMELOCK", address(0)) == address(0)) {
-            console2.log("checagens OK:", ok);
-            console2.log("(ponte ainda nao ligada: etapa 1)");
-            return;
-        }
-        TimelockController tl = TimelockController(payable(vm.envAddress("TIMELOCK")));
+        // ponte: ETAPA=1 (só publicação), 2 (ligada e fixada) ou 3 (renunciada)
+        uint256 etapa = vm.envOr("ETAPA", uint256(1));
         ILayerZeroEndpointV2 ep = ILayerZeroEndpointV2(0x1a44076050125825900e736c501f859c50fE728c);
-        _c(address(tl).code.length > 0 && tl.getMinDelay() == 7 days, "timelock 7 dias");
-        _c(tl.hasRole(tl.PROPOSER_ROLE(), dono), "dono propoe no timelock");
-        _c(!tl.hasRole(tl.DEFAULT_ADMIN_ROLE(), vm.envAddress("DEPLOYER")), "publicacao sem admin no timelock");
-        _c(!tl.hasRole(tl.DEFAULT_ADMIN_ROLE(), dono), "dono sem admin no timelock");
-        _c(tl.hasRole(tl.DEFAULT_ADMIN_ROLE(), address(tl)), "timelock e admin de si mesmo");
-        _c(tl.hasRole(tl.EXECUTOR_ROLE(), address(0)), "qualquer um executa depois do prazo");
-        _c(!tl.hasRole(tl.PROPOSER_ROLE(), vm.envAddress("DEPLOYER")), "publicacao nao propoe");
-        _c(t.owner() == address(tl), "dono da ponte = timelock");
-        _c(IDelegates(address(ep)).delegates(address(t)) == address(tl), "delegate da ponte = timelock");
         _c(t.sharedDecimals() == 0 && address(t.endpoint()) == address(ep), "ponte: casas e endpoint");
-        uint256[] memory outras = vm.envUint("EIDS", ",");
-        _c(outras.length == 7, "7 outras redes");
-        for (uint256 i; i < outras.length; i++) {
-            uint32 e = uint32(outras[i]);
-            _c(t.peers(e) == bytes32(uint256(uint160(address(t)))), "par da ponte = mesmo endereco");
-            _c(!ep.isDefaultSendLibrary(address(t), e), "biblioteca de envio fixada");
-            (, bool recPadrao) = ep.getReceiveLibrary(address(t), e);
-            _c(!recPadrao, "biblioteca de recebimento fixada");
-            _c(t.enforcedOptions(e, 1).length > 0 && t.enforcedOptions(e, 2).length > 0, "gas de entrega fixado");
+        if (etapa == 1) _c(t.owner() == vm.envAddress("DEPLOYER"), "etapa 1: dono = publicacao");
+        if (etapa >= 2) {
+            uint256[] memory outras = vm.envUint("EIDS", ",");
+            _c(outras.length == 7, "7 outras redes");
+            for (uint256 i; i < outras.length; i++) {
+                uint32 e = uint32(outras[i]);
+                _c(t.peers(e) == bytes32(uint256(uint160(address(t)))), "par da ponte = mesmo endereco");
+                _c(!ep.isDefaultSendLibrary(address(t), e), "biblioteca de envio fixada");
+                (, bool recPadrao) = ep.getReceiveLibrary(address(t), e);
+                _c(!recPadrao, "biblioteca de recebimento fixada");
+                _c(t.enforcedOptions(e, 1).length > 0 && t.enforcedOptions(e, 2).length > 0, "gas de entrega fixado");
+            }
+        }
+        if (etapa == 3) {
+            _c(t.owner() == address(0), "ponte renunciada: sem dono");
+            _c(IDelegates(address(ep)).delegates(address(t)) == address(0), "ponte renunciada: sem delegate");
         }
         console2.log("checagens OK:", ok);
     }
