@@ -22,7 +22,7 @@ abstract contract BaseAGL is Test {
     using StateLibrary for IPoolManager;
 
     address constant CREATEX = 0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed;
-    address constant DEPLOYER = 0xcDb05fEDD9ef3258e75De23AbF2751aC22156A1c;
+    address constant DEPLOYER = 0x4a5beD839b3cb0736c03fB3A7eb096701E8A89c8;
     address constant DONO = 0x979514BddD0346FdD218c49B8242b92C1A6D0ffC;
 
     string rede;

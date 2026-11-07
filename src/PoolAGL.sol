@@ -25,15 +25,16 @@ import { AGL } from "./AGL.sol";
 /// 1. `lancar` cria o token (CreateX CREATE3, salt protegido por este contrato), recebe
 ///    95% da parte da rede, cria a pool e deposita TODO esse saldo na escada, numa
 ///    transação só. Antes dela o token não existe; depois dela a pool já tem liquidez.
-/// 2. Ninguém além deste contrato cria pool com este hook: ele é o hook da pool e o
-///    PoolManager não chama o hook quando quem inicializa é o próprio hook; para qualquer
-///    outro `beforeInitialize` recusa. Isso fecha a pré-inicialização com preço falso.
-///    Comprar, vender e pôr liquidez de terceiros são livres (o hook não roda no swap).
+/// 2. Só este contrato cria a pool e põe liquidez nela: ele é o hook da pool e o
+///    PoolManager não chama o hook quando quem age é o próprio hook; para qualquer outro
+///    `beforeInitialize` e `beforeAddLiquidity` recusam. Isso fecha a pré-inicialização
+///    com preço falso e a diluição das taxas por liquidez de terceiros (JIT).
+///    Comprar e vender são livres (o hook não roda no swap).
 /// 3. A liquidez de cada degrau nunca diminui: não existe função que tire liquidez.
 /// 4. As taxas (nas duas moedas) só saem para `recebedorTaxas`, por `coletarTaxas`.
 ///
-/// Publicado pela CreateX num endereço cujos bits de hook são exatamente BEFORE_INITIALIZE
-/// (o construtor confere).
+/// Publicado pela CreateX num endereço cujos bits de hook são exatamente
+/// BEFORE_INITIALIZE | BEFORE_ADD_LIQUIDITY (o construtor confere).
 contract PoolAGL is IUnlockCallback {
     using SafeERC20 for IERC20;
     using PoolIdLibrary for PoolKey;
@@ -42,7 +43,7 @@ contract PoolAGL is IUnlockCallback {
     uint24 public constant TAXA = 20_000; // 2% (em milionésimos)
     int24 public constant ESPACAMENTO = 10;
     ICreateX public constant CREATEX = ICreateX(0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed);
-    uint160 internal constant BITS_HOOK = Hooks.BEFORE_INITIALIZE_FLAG;
+    uint160 internal constant BITS_HOOK = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG;
 
     struct Faixa {
         int24 inferior;
@@ -107,6 +108,16 @@ contract PoolAGL is IUnlockCallback {
 
     /// Só chega aqui quem NÃO é este contrato: recusa.
     function beforeInitialize(address, PoolKey calldata, uint160) external view returns (bytes4) {
+        if (msg.sender != address(poolManager)) revert SoPoolManager();
+        revert SoEstaPool();
+    }
+
+    /// Só chega aqui quem NÃO é este contrato: recusa.
+    function beforeAddLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
+        external
+        view
+        returns (bytes4)
+    {
         if (msg.sender != address(poolManager)) revert SoPoolManager();
         revert SoEstaPool();
     }

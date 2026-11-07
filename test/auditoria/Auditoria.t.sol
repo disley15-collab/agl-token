@@ -161,45 +161,28 @@ contract AuditoriaAGL is BaseAGL {
     }
 
     // ------------------------------------------------------------------ C
-    /// C1: JIT. LP de terceiro numa faixa estreita na pool oficial captura a maior parte
-    /// dos 2% de uma compra; a taxa do recebedor cai.
-    function test_C1_jit_dilui_taxa_do_recebedor() public {
+    /// C1 (corrigido 07/11): JIT. Antes o hook aceitava liquidez de terceiro numa faixa
+    /// estreita, que levava a maior parte dos 2% (US$1,00 -> US$0,14 numa compra de US$50).
+    /// Agora o hook recusa beforeAddLiquidity de terceiros: a taxa inteira fica com o recebedor.
+    function test_C1_jit_recusado_taxa_inteira_ao_recebedor() public {
         _lancar();
         bool t0 = pool.tokenEhMoeda0();
-        uint256 snap = vm.snapshotState();
-        // sem JIT
-        _comprar(comprador, _unid(50));
-        uint256 a = IERC20(MOEDA).balanceOf(DONO);
-        pool.coletarTaxas();
-        uint256 taxaSem = IERC20(MOEDA).balanceOf(DONO) - a;
-        vm.revertToState(snap);
-
-        // atacante compra AGL antes, depois faz JIT
         uint256 tok = _comprar(atacante, _unid(1_000));
-        pool.coletarTaxas(); // zera a taxa da compra do atacante
+        pool.coletarTaxas();
         PoolKey memory k = pool.chave();
         int24 tk = _tick();
-        // faixa só-token logo "à frente" do preço (na direção da compra)
         int24 piso = tk >= 0 ? (tk / 10) * 10 : ((tk - 9) / 10) * 10;
         (int24 lo, int24 hi) = t0 ? (piso + 10, piso + 210) : (piso - 200, piso);
         vm.startPrank(atacante);
         t.approve(address(lp), type(uint256).max);
-        // liquidez que cabe em ~todo o AGL comprado
         uint128 L = uint128(_liqPara(lo, hi, tok * 99 / 100, t0));
+        vm.expectRevert();
         lp.modifyLiquidity(k, ModifyLiquidityParams(lo, hi, int256(uint256(L)), 0), "");
         vm.stopPrank();
         _comprar(comprador, _unid(50));
-        a = IERC20(MOEDA).balanceOf(DONO);
+        uint256 a = IERC20(MOEDA).balanceOf(DONO);
         pool.coletarTaxas();
-        uint256 taxaCom = IERC20(MOEDA).balanceOf(DONO) - a;
-        // atacante tira a posição com a taxa
-        uint256 m0 = IERC20(MOEDA).balanceOf(atacante);
-        vm.prank(atacante);
-        lp.modifyLiquidity(k, ModifyLiquidityParams(lo, hi, -int256(uint256(L)), 0), "");
-        emit log_named_decimal_uint("moeda que o JIT tirou (venda + taxa)", IERC20(MOEDA).balanceOf(atacante) - m0, casasMoeda);
-        emit log_named_decimal_uint("taxa ao recebedor sem JIT", taxaSem, casasMoeda);
-        emit log_named_decimal_uint("taxa ao recebedor com JIT", taxaCom, casasMoeda);
-        assertLt(taxaCom * 3, taxaSem, "JIT leva mais de 2/3 da taxa");
+        assertApproxEqRel(IERC20(MOEDA).balanceOf(DONO) - a, _unid(1), 0.001e18, "2% de US$50 inteiro ao recebedor");
     }
 
     function _liqPara(int24 lo, int24 hi, uint256 qtd, bool t0) internal pure returns (uint256) {
@@ -305,17 +288,20 @@ contract AuditoriaAGL is BaseAGL {
         vm.expectRevert();
         lp.modifyLiquidity(k, ModifyLiquidityParams(fx[0].inferior, fx[0].superior, 0, 0), "");
 
-        // 1 wei de liquidez de terceiro no mesmo degrau
+        // 1 wei de liquidez de terceiro no mesmo degrau: recusado pelo hook
         deal(address(t), atacante, 1e9);
         deal(MOEDA, atacante, 1e6);
         vm.startPrank(atacante);
         t.approve(address(lp), type(uint256).max);
         IERC20(MOEDA).approve(address(lp), type(uint256).max);
+        vm.expectRevert();
         lp.modifyLiquidity(k, ModifyLiquidityParams(fx[0].inferior, fx[0].superior, 1, 0), "");
         vm.expectRevert(PoolAGL.SoPoolManager.selector);
         pool.unlockCallback(abi.encode(uint8(2), int24(0)));
         vm.expectRevert(PoolAGL.SoPoolManager.selector);
         pool.beforeInitialize(atacante, k, 1);
+        vm.expectRevert(PoolAGL.SoPoolManager.selector);
+        pool.beforeAddLiquidity(atacante, k, ModifyLiquidityParams(0, 10, 1, 0), "");
         vm.stopPrank();
 
         uint256 g = gasleft();

@@ -6,12 +6,12 @@
 //   addr    = keccak256(0xd6 ++ 0x94 ++ proxy ++ 0x01)[12:]            (23 bytes)
 //
 // Os 11 bytes livres do salt: salt[21..24) = gid (24 bits), salt[24..32) = semente ^ contador.
-// Modo --hook: exige também (addr & 0x3fff) == HOOK_BITS (compilar com -DHOOK_BITS=0x2000 = só BEFORE_INITIALIZE).
+// Modo --hook: exige também (addr & 0x3fff) == HOOK_BITS (padrão 0x2800 = BEFORE_INITIALIZE|BEFORE_ADD_LIQUIDITY).
 // Imprime cada novo recorde (mais zeros à esquerda); o host confere de novo na CPU antes de imprimir.
 // Uso: menor_create3 --deployer 0x.. [--hook] [--secs N] [--min-bits B]
 
 #ifndef HOOK_BITS
-#define HOOK_BITS 0x2000
+#define HOOK_BITS 0x2800
 #endif
 #include <cstdio>
 #include <cstdint>

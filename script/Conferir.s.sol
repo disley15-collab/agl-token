@@ -33,7 +33,7 @@ contract Conferir is Script {
         address dono = 0x979514BddD0346FdD218c49B8242b92C1A6D0ffC;
 
         _c(address(pool).code.length > 0, "pool sem codigo");
-        _c(uint160(address(pool)) & Hooks.ALL_HOOK_MASK == Hooks.BEFORE_INITIALIZE_FLAG, "bits de hook");
+        _c(uint160(address(pool)) & Hooks.ALL_HOOK_MASK == (Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG), "bits de hook");
         _c(address(pool.poolManager()) == address(pm), "poolManager");
         _c(pool.lancador() == vm.envAddress("DEPLOYER"), "lancador");
         _c(Currency.unwrap(pool.moeda()) == vm.envAddress("MOEDA"), "moeda");

@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 REDE=$1
 read -r nome id rpc pm moeda casas < <(awk -F'\t' -v n=$REDE '$1==n' script/redes.tsv)
 R=${2:-$rpc}
-PK=${AGL_PK:-$(cat ~/credenciais/sdbr-deployer.key)}
+PK=${AGL_PK:-$(cat ~/credenciais/agl-deployer.key)}
 [[ $(cast chain-id --rpc-url $R) == "$id" ]] || { echo "RPC da rede errada"; exit 1; }
 SALT_POOL=$(python3 -c "import json;print(json.load(open('script/salt-pool.json'))['salt'])")
 SALT_TOKEN=$(python3 -c "import json;print(json.load(open('script/salt-token.json'))['salt'])")
