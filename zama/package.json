@@ -1,0 +1,15 @@
+{
+  "name": "zama",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "dependencies": {
+    "@fhevm/solidity": "^0.11.1",
+    "@openzeppelin/confidential-contracts": "^0.5.3"
+  }
+}

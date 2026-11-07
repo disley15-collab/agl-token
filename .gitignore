@@ -5,3 +5,6 @@ node_modules
 broadcast/
 publicacao-*.log
 script/escada-*.json
+out-zama/
+cache-zama/
+zama/node_modules/

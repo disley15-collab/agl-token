@@ -38,3 +38,30 @@ runs = 64
 runs = 12
 depth = 25
 fail_on_revert = true
+
+# Camada confidencial (Zama fhEVM, Ethereum): solc >= 0.8.27, compila à parte.
+[profile.zama]
+src = "zama/src"
+test = "zama/test"
+out = "out-zama"
+cache_path = "cache-zama"
+solc_version = "0.8.28"
+evm_version = "cancun"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+bytecode_hash = "none"
+cbor_metadata = false
+ffi = true
+fs_permissions = [{ access = "read", path = "./" }]
+libs = ["lib", "node_modules", "zama/node_modules"]
+remappings = [
+  "forge-std/=lib/forge-std/src/",
+  "v4-core/=lib/v4-core/src/",
+  "v4-periphery/=lib/v4-periphery/src/",
+  "@uniswap/v4-core/=lib/v4-core/",
+  "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
+  "@openzeppelin/confidential-contracts/=zama/node_modules/@openzeppelin/confidential-contracts/",
+  "@fhevm/solidity/=zama/node_modules/@fhevm/solidity/",
+  "encrypted-types/=zama/node_modules/encrypted-types/",
+]
