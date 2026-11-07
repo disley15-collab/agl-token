@@ -57,7 +57,7 @@ contract Conferir is Script {
         _c(t.decimals() == 9, "casas");
         uint256 parte = t.SUPPLY_POR_REDE();
         _c(parte == 1e30, "1 sextilhao");
-        _c(t.totalSupply() == parte, "supply");
+        if (vm.envOr("RECEM_PUBLICADO", true)) _c(t.totalSupply() == parte, "supply");
         _c(t.guardiao() == dono, "guardiao entregue ao dono");
         _c(address(t.pool()) == address(pool), "pool no token");
         _c(t.poolManager() == address(pm), "poolManager no token");
@@ -89,7 +89,7 @@ contract Conferir is Script {
             soma += fx[i].quantidade;
         }
         _c(soma == parte, "escada = 100%");
-        _c(t.balanceOf(address(pool)) < soma / 1e9, "poeira");
+        if (vm.envOr("RECEM_PUBLICADO", true)) _c(t.balanceOf(address(pool)) < soma / 1e9, "poeira");
         // registro e escrow
         RegistroAGL reg = RegistroAGL(vm.envAddress("REGISTRO"));
         EscrowAGL esc = EscrowAGL(vm.envAddress("ESCROW"));
@@ -111,12 +111,21 @@ contract Conferir is Script {
         _c(esc.moedaAceita(vm.envAddress("MOEDA")), "moeda aceita");
         if (vm.envOr("RECEM_PUBLICADO", true)) _c(esc.totalOrdens() == 0, "escrow sem ordens");
         _c(address(reg).code.length > 0 && t.permitido(address(pool)), "pool liberada no token");
-        // ponte
+        // ponte (etapa 2): só quando TIMELOCK é informado
+        if (vm.envOr("TIMELOCK", address(0)) == address(0)) {
+            console2.log("checagens OK:", ok);
+            console2.log("(ponte ainda nao ligada: etapa 1)");
+            return;
+        }
         TimelockController tl = TimelockController(payable(vm.envAddress("TIMELOCK")));
         ILayerZeroEndpointV2 ep = ILayerZeroEndpointV2(0x1a44076050125825900e736c501f859c50fE728c);
         _c(address(tl).code.length > 0 && tl.getMinDelay() == 7 days, "timelock 7 dias");
         _c(tl.hasRole(tl.PROPOSER_ROLE(), dono), "dono propoe no timelock");
         _c(!tl.hasRole(tl.DEFAULT_ADMIN_ROLE(), vm.envAddress("DEPLOYER")), "publicacao sem admin no timelock");
+        _c(!tl.hasRole(tl.DEFAULT_ADMIN_ROLE(), dono), "dono sem admin no timelock");
+        _c(tl.hasRole(tl.DEFAULT_ADMIN_ROLE(), address(tl)), "timelock e admin de si mesmo");
+        _c(tl.hasRole(tl.EXECUTOR_ROLE(), address(0)), "qualquer um executa depois do prazo");
+        _c(!tl.hasRole(tl.PROPOSER_ROLE(), vm.envAddress("DEPLOYER")), "publicacao nao propoe");
         _c(t.owner() == address(tl), "dono da ponte = timelock");
         _c(IDelegates(address(ep)).delegates(address(t)) == address(tl), "delegate da ponte = timelock");
         _c(t.sharedDecimals() == 0 && address(t.endpoint()) == address(ep), "ponte: casas e endpoint");
@@ -126,6 +135,8 @@ contract Conferir is Script {
             uint32 e = uint32(outras[i]);
             _c(t.peers(e) == bytes32(uint256(uint160(address(t)))), "par da ponte = mesmo endereco");
             _c(!ep.isDefaultSendLibrary(address(t), e), "biblioteca de envio fixada");
+            (, bool recPadrao) = ep.getReceiveLibrary(address(t), e);
+            _c(!recPadrao, "biblioteca de recebimento fixada");
             _c(t.enforcedOptions(e, 1).length > 0 && t.enforcedOptions(e, 2).length > 0, "gas de entrega fixado");
         }
         console2.log("checagens OK:", ok);

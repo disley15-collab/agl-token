@@ -40,7 +40,7 @@ contract Publicar is Script {
     uint256 constant TAXA_VENDEDOR_BPS = 200; // 2%
     address constant EP = 0x1a44076050125825900e736c501f859c50fE728c;
     uint256 constant ATRASO_TIMELOCK = 7 days;
-    uint128 constant GAS_ENTREGA = 150_000;
+    uint128 constant GAS_ENTREGA = 300_000; // mint + sondas da trava (auditoria: até ~220k em contrato pesado)
     uint8 constant NIL_DVN = type(uint8).max;
 
     function _endereco(address _eu, bytes32 _salt) internal view returns (address) {
@@ -123,8 +123,9 @@ contract Publicar is Script {
             reg.trocarSupervisor(DONO);
         }
         if (t.guardiao() == eu) t.trocarGuardiao(DONO);
-        // 6. ponte
-        if (t.owner() == eu) {
+        // 6. ponte — só na 2ª etapa (LIGAR_PONTE=1), depois que as 8 redes foram publicadas e
+        //    conferidas: antes disso a chave de publicação poria um AGL falso numa rede ainda vazia
+        if (vm.envOr("LIGAR_PONTE", false) && t.owner() == eu) {
             uint256[] memory outras = vm.envUint("EIDS", ",");
             uint32[] memory eids = new uint32[](outras.length);
             for (uint256 i; i < outras.length; i++) eids[i] = uint32(outras[i]);
@@ -157,15 +158,14 @@ contract Publicar is Script {
     function _fixarPonte(AGL _t, uint32[] memory _eids) internal {
         ILayerZeroEndpointV2 ep = ILayerZeroEndpointV2(EP);
         EnforcedOptionParam[] memory opts = new EnforcedOptionParam[](_eids.length * 2);
-        uint256 n;
         bytes memory gas = abi.encodePacked(uint16(3), uint8(1), uint16(17), uint8(1), GAS_ENTREGA);
         for (uint256 i; i < _eids.length; i++) {
             uint32 e = _eids[i];
-            if (!ep.isDefaultSendLibrary(address(_t), e)) continue; // já fixada
+            // cada passo é idempotente (retomável depois de falha no meio)
             address envio = ep.getSendLibrary(address(_t), e);
-            address recebe = ep.defaultReceiveLibrary(e);
-            ep.setSendLibrary(address(_t), e, envio);
-            ep.setReceiveLibrary(address(_t), e, recebe, 0);
+            if (ep.isDefaultSendLibrary(address(_t), e)) ep.setSendLibrary(address(_t), e, envio);
+            (address recebe, bool padrao) = ep.getReceiveLibrary(address(_t), e);
+            if (padrao) ep.setReceiveLibrary(address(_t), e, recebe, 0);
             SetConfigParam[] memory pe = new SetConfigParam[](2);
             pe[0] = SetConfigParam(e, 1, abi.encode(IUlnLeitura(envio).getExecutorConfig(address(_t), e)));
             pe[1] = SetConfigParam(e, 2, abi.encode(_explicita(IUlnLeitura(envio).getUlnConfig(address(_t), e))));
@@ -173,12 +173,8 @@ contract Publicar is Script {
             SetConfigParam[] memory pr = new SetConfigParam[](1);
             pr[0] = SetConfigParam(e, 2, abi.encode(_explicita(IUlnLeitura(recebe).getUlnConfig(address(_t), e))));
             ep.setConfig(address(_t), recebe, pr);
-            opts[n++] = EnforcedOptionParam(e, 1, gas); // SEND
-            opts[n++] = EnforcedOptionParam(e, 2, gas); // SEND_AND_CALL
-        }
-        if (n == 0) return;
-        assembly {
-            mstore(opts, n)
+            opts[2 * i] = EnforcedOptionParam(e, 1, gas); // SEND
+            opts[2 * i + 1] = EnforcedOptionParam(e, 2, gas); // SEND_AND_CALL
         }
         _t.setEnforcedOptions(opts);
     }

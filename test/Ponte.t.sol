@@ -28,7 +28,7 @@ contract PoolFalsaDestino {
 /// (queima). No destino: a entrega é feita como o endpoint faria (lzReceive).
 contract PonteTest is BaseAGL {
     address constant EP = 0x1a44076050125825900e736c501f859c50fE728c;
-    uint128 constant GAS_ENTREGA = 150_000;
+    uint128 constant GAS_ENTREGA = 300_000;
 
     struct Rede {
         uint256 fork;

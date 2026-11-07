@@ -26,9 +26,9 @@ interface IPoolAGL {
 /// 1. Uniswap v4: o AGL só entra/sai do PoolManager dentro da cota que a pool oficial abre
 ///    (compra/venda nela, lançamento e coleta).
 /// 2. Cofres de DEX com taxa livre (PancakeSwap Infinity, Balancer v2/v3, Ekubo) nunca
-///    recebem AGL.
-/// 3. Nenhum contrato com "cara de pool do AGL" (token0/token1 ou coins(0)/coins(1) = AGL,
-///    como pools Uniswap/Pancake v2/v3, Aerodrome, Curve e clones) recebe AGL, a não ser
+///    recebem AGL (nem o guardião libera).
+/// 3. Nenhum contrato com "cara de pool do AGL" (ver `_parecePoolDoAgl`: Uniswap/Pancake
+///    v2/v3, Aerodrome, Curve, LFJ, Maverick, iZiSwap, DODO e clones) recebe AGL, a não ser
 ///    que o guardião o tenha liberado (as pools que o próprio emissor criar).
 /// Carteiras, agregadores, roteadores e carteiras inteligentes recebem normalmente.
 ///
@@ -50,13 +50,14 @@ contract AGL is OFT, ERC20Permit {
     error RedeForaDaLista(uint256 chainid);
     error PoolNaoAutorizada(address destino);
     error CofreDeDexBloqueado(address destino);
+    error CriacaoNoPoolManager();
 
     // Cofres de DEX com taxa livre (mesmo endereço nas redes onde existem; conferidos em 07/11).
     address internal constant PANCAKE_INFINITY_VAULT = 0x238a358808379702088667322f80aC48bAd5e6c4;
     address internal constant BALANCER_V2_VAULT = 0xBA12222222228d8Ba445958a75a0704d566BF2C8;
     address internal constant BALANCER_V3_VAULT = 0xbA1333333333a1BA1108E8412f11850A5C319bA9;
     address internal constant EKUBO_CORE = 0xe0e0e08A6A4b9Dc7bD67BCB7aadE5cF48157d444;
-    uint256 internal constant GAS_SONDA = 30_000;
+    uint256 internal constant GAS_SONDA = 10_000;
     error SoGuardiao();
     error EnderecoZero();
 
@@ -118,25 +119,50 @@ contract AGL is OFT, ERC20Permit {
     function _update(address _de, address _para, uint256 _valor) internal override {
         address pm = poolManager;
         if (_para == pm) {
+            // criação (ponte) direto no PoolManager nunca: a cota de outro swap a capturaria
+            if (_de == address(0)) revert CriacaoNoPoolManager();
             pool.consumirEntrada(_valor);
         } else {
             if (_de == pm) pool.consumirSaida(_valor);
-            if (_para != address(0) && !permitido[_para] && _ehContrato(_para)) {
-                if (
-                    _para == PANCAKE_INFINITY_VAULT || _para == BALANCER_V2_VAULT || _para == BALANCER_V3_VAULT
-                        || _para == EKUBO_CORE
-                ) revert CofreDeDexBloqueado(_para);
-                if (_parecePoolDoAgl(_para)) revert PoolNaoAutorizada(_para);
+            if (_para != address(0) && _ehContrato(_para)) {
+                // cofres de DEX com taxa livre: bloqueados sempre (nem o guardião libera)
+                if (_ehCofreDeDex(_para)) revert CofreDeDexBloqueado(_para);
+                if (!permitido[_para] && _parecePoolDoAgl(_para)) revert PoolNaoAutorizada(_para);
             }
         }
         super._update(_de, _para, _valor);
     }
 
-    /// Pool do AGL = responde token0()/token1() ou coins(0)/coins(1) com este token.
+    function _ehCofreDeDex(address _a) internal pure returns (bool) {
+        return _a == PANCAKE_INFINITY_VAULT || _a == BALANCER_V2_VAULT || _a == BALANCER_V3_VAULT || _a == EKUBO_CORE;
+    }
+
+    /// Pool do AGL = responde, com este token, alguma das interfaces de par usadas pelos DEX
+    /// que os agregadores indexam: token0/token1 (Uniswap e Pancake v2/v3, Aerodrome,
+    /// Velodrome, Camelot, Sushi e clones), coins(i) (Curve), getTokenX/getTokenY (LFJ
+    /// Liquidity Book), tokenA/tokenB (Maverick), tokenX/tokenY (iZiSwap), _BASE_TOKEN_ e
+    /// _QUOTE_TOKEN_ (DODO). Limite conhecido: um AMM feito sob medida para enganar a sonda
+    /// passa, mas não é indexado pelos agregadores.
     function _parecePoolDoAgl(address _a) internal view returns (bool) {
-        return _sonda(_a, abi.encodeWithSignature("token0()")) || _sonda(_a, abi.encodeWithSignature("token1()"))
-            || _sonda(_a, abi.encodeWithSignature("coins(uint256)", 0))
-            || _sonda(_a, abi.encodeWithSignature("coins(uint256)", 1));
+        bytes4[12] memory sel = [
+            bytes4(0x0dfe1681), // token0()
+            0xd21220a7, // token1()
+            0x05e8746d, // getTokenX()
+            0xda10610c, // getTokenY()
+            0x0fc63d10, // tokenA()
+            0x5f64b55b, // tokenB()
+            0x16dc165b, // tokenX()
+            0xb7d19fc4, // tokenY()
+            0x4a248d2a, // _BASE_TOKEN_()
+            0xd4b97046, // _QUOTE_TOKEN_()
+            0xc6610657, // coins(uint256) com 0
+            0xc6610657 // coins(uint256) com 1
+        ];
+        for (uint256 i; i < 12; i++) {
+            bytes memory chamada = i < 10 ? abi.encodePacked(sel[i]) : abi.encodeWithSelector(sel[i], i - 10);
+            if (_sonda(_a, chamada)) return true;
+        }
+        return false;
     }
 
     function _sonda(address _a, bytes memory _chamada) internal view returns (bool) {

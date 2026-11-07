@@ -6,7 +6,8 @@ cd "$(dirname "$0")/.."
 REDE=$1
 read -r nome id rpc pm moeda casas < <(awk -F'\t' -v n=$REDE '$1==n' script/redes.tsv)
 R=${2:-$rpc}
-: "${REGISTRO:?defina REGISTRO}" "${ESCROW:?defina ESCROW}" "${TIMELOCK:?defina TIMELOCK}"
+: "${REGISTRO:?defina REGISTRO}" "${ESCROW:?defina ESCROW}"
+TIMELOCK=${TIMELOCK:-0x0000000000000000000000000000000000000000}
 ALL="30102 30184 30110 30109 30111 30106 30125 30101"
 EID=$(cast call 0x1a44076050125825900e736c501f859c50fE728c "eid()(uint32)" --rpc-url $R | awk '{print $1}')
 EIDS=$(for e in $ALL; do if [[ $e != "$EID" ]]; then printf "%s," $e; fi; done | sed "s/,$//")
