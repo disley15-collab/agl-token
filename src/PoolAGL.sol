@@ -27,11 +27,19 @@ import { AGL } from "./AGL.sol";
 /// 2. Só este contrato cria a pool e põe liquidez nela: o PoolManager não chama o hook
 ///    quando quem age é o próprio hook; para qualquer outro, `beforeInitialize` e
 ///    `beforeAddLiquidity` recusam (fecha pré-inicialização e JIT de terceiros).
-/// 3. COTA: a cada swap na pool oficial, `afterSwap` abre uma cota transitória (EIP-1153)
-///    do quanto de AGL entra e sai do PoolManager. O token só aceita entrada/saída do
-///    PoolManager dentro dessa cota. Lançamento e coleta abrem a própria cota.
+/// 3. COTA LÍQUIDA: a cada swap na pool oficial, `afterSwap` soma numa cota transitória
+///    (EIP-1153, com sinal) o AGL que o operador deve ao PoolManager (+) ou recebe dele (−).
+///    O token só aceita entrada/saída física do PoolManager dentro dessa cota. Ida e volta
+///    na pool oficial zera a cota (não fabrica cota grátis). Lançamento e coleta abrem a
+///    própria cota.
+///    LIMITE CONHECIDO (auditoria 07/11): a trava age na transferência física. Quem compensa
+///    saldos dentro do PoolManager (mesmo unlock) ou usa claims ERC-6909 consegue levar AGL
+///    a outra pool sem transferir. Ninguém perde AGL nem taxa com isso; quem pode perder é
+///    quem compra numa pool falsa por um front-end malicioso.
 /// 4. A liquidez de cada degrau nunca diminui: não existe função que tire liquidez.
-/// 5. As taxas (nas duas moedas) só saem para `recebedorTaxas`, por `coletarTaxas`.
+/// 5. As taxas (nas duas moedas) vêm para este contrato por `coletarTaxas` (qualquer um) e
+///    só saem por `sacarTaxas`, chamado pelo recebedor, moeda a moeda, para o destino que
+///    ele escolher: blacklist ou destino recusado numa moeda não trava a outra.
 ///
 /// Endereço publicado pela CreateX com bits de hook exatamente
 /// BEFORE_INITIALIZE | BEFORE_ADD_LIQUIDITY | AFTER_SWAP (o construtor confere).
@@ -45,9 +53,8 @@ contract PoolAGL is IUnlockCallback {
     ICreateX public constant CREATEX = ICreateX(0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed);
     uint160 internal constant BITS_HOOK =
         Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.AFTER_SWAP_FLAG;
-    // slots transitórios das cotas: keccak256("agl.cota.entrada") / ("agl.cota.saida")
+    // slot transitório da cota líquida: keccak256("agl.cota.entrada")
     bytes32 internal constant SLOT_ENTRADA = 0xa11c6e133e7e4c4b04f33b5b1bde052706392775ae91fd6cef2a6accd76d39f6;
-    bytes32 internal constant SLOT_SAIDA = 0xfeeaab3a6cf3303fdf9d7feda8e40d3fa313ba10908dc7e4a7e80008f193be3a;
 
     struct Faixa {
         int24 inferior;
@@ -64,6 +71,8 @@ contract PoolAGL is IUnlockCallback {
     address public recebedorTaxas;
     bool public lancado;
     Faixa[] internal faixas;
+    /// @notice Taxas já coletadas, à espera de `sacarTaxas`, por moeda.
+    mapping(address => uint256) public aSacar;
 
     uint8 internal constant LANCAR = 1;
     uint8 internal constant COLETAR = 2;
@@ -81,10 +90,12 @@ contract PoolAGL is IUnlockCallback {
     error FaixaFora(uint256 faixa);
     error SobraNegativa();
     error LiquidezZero(uint256 faixa);
-    error ForaDaCota(uint256 pedido, uint256 cota);
+    error ForaDaCota(uint256 pedido, int256 cota);
+    error SaltSemProtecao();
 
     event Lancado(address indexed token, PoolId indexed id, uint256 faixas, uint256 tokens);
-    event TaxasColetadas(address indexed para, uint256 emToken, uint256 emMoeda);
+    event TaxasColetadas(uint256 emToken, uint256 emMoeda);
+    event TaxasSacadas(address indexed moeda, address indexed para, uint256 valor);
     event RecebedorTransferido(address indexed recebedor);
 
     constructor(
@@ -139,53 +150,56 @@ contract PoolAGL is IUnlockCallback {
         revert SoEstaPool();
     }
 
-    /// Abre a cota do AGL que este swap move: o que o operador deve ao PoolManager
-    /// (entrada) ou o que recebe dele (saída). Só a pool oficial usa este hook (as
-    /// outras não passam do `beforeInitialize`).
+    /// Soma na cota líquida o AGL que este swap move: o que o operador deve ao PoolManager
+    /// (+) ou recebe dele (−). Só a pool oficial usa este hook (as outras não passam do
+    /// `beforeInitialize`).
     function afterSwap(address, PoolKey calldata, SwapParams calldata, BalanceDelta _delta, bytes calldata)
         external
         returns (bytes4, int128)
     {
         if (msg.sender != address(poolManager)) revert SoPoolManager();
         int128 a = tokenEhMoeda0() ? _delta.amount0() : _delta.amount1();
-        if (a < 0) _somar(SLOT_ENTRADA, uint256(uint128(-a)));
-        else if (a > 0) _somar(SLOT_SAIDA, uint256(uint128(a)));
+        _somar(-int256(a));
         return (this.afterSwap.selector, 0);
     }
 
     // ------------------------------------------------------------- cota (token)
 
+    /// AGL entrando no PoolManager: precisa de cota positiva.
     function consumirEntrada(uint256 _v) external {
-        _consumir(SLOT_ENTRADA, _v);
-    }
-
-    function consumirSaida(uint256 _v) external {
-        _consumir(SLOT_SAIDA, _v);
-    }
-
-    function cotas() external view returns (uint256 entrada, uint256 saida) {
-        return (_ler(SLOT_ENTRADA), _ler(SLOT_SAIDA));
-    }
-
-    function _consumir(bytes32 _slot, uint256 _v) internal {
         if (msg.sender != Currency.unwrap(token)) revert SoToken();
-        uint256 c = _ler(_slot);
-        if (_v > c) revert ForaDaCota(_v, c);
+        int256 c = _ler();
+        if (c < 0 || uint256(c) < _v) revert ForaDaCota(_v, c);
+        _gravar(c - int256(_v));
+    }
+
+    /// AGL saindo do PoolManager: precisa de cota negativa.
+    function consumirSaida(uint256 _v) external {
+        if (msg.sender != Currency.unwrap(token)) revert SoToken();
+        int256 c = _ler();
+        if (c > 0 || uint256(-c) < _v) revert ForaDaCota(_v, c);
+        _gravar(c + int256(_v));
+    }
+
+    function cota() external view returns (int256) {
+        return _ler();
+    }
+
+    function _somar(int256 _v) internal {
+        _gravar(_ler() + _v);
+    }
+
+    function _gravar(int256 _c) internal {
+        bytes32 slot = SLOT_ENTRADA;
         assembly {
-            tstore(_slot, sub(c, _v))
+            tstore(slot, _c)
         }
     }
 
-    function _somar(bytes32 _slot, uint256 _v) internal {
-        uint256 c = _ler(_slot) + _v;
+    function _ler() internal view returns (int256 c) {
+        bytes32 slot = SLOT_ENTRADA;
         assembly {
-            tstore(_slot, c)
-        }
-    }
-
-    function _ler(bytes32 _slot) internal view returns (uint256 c) {
-        assembly {
-            c := tload(_slot)
+            c := tload(slot)
         }
     }
 
@@ -198,6 +212,9 @@ contract PoolAGL is IUnlockCallback {
         if (msg.sender != lancador) revert SoLancador();
         if (lancado) revert JaLancado();
         if (_faixas.length == 0) revert EscadaVazia();
+        // salt protegido: 20 primeiros bytes = este contrato, byte 21 = 0x00 (mesmo endereço
+        // em toda rede e ninguém mais publica nele)
+        if (address(bytes20(_saltToken)) != address(this) || _saltToken[20] != 0x00) revert SaltSemProtecao();
         lancado = true;
 
         address t = CREATEX.deployCreate3(
@@ -223,9 +240,20 @@ contract PoolAGL is IUnlockCallback {
         emit Lancado(t, chave().toId(), _faixas.length, saldo);
     }
 
-    /// @notice Qualquer um pode chamar; as taxas vão sempre para `recebedorTaxas`.
+    /// @notice Qualquer um pode chamar: traz as taxas acumuladas para este contrato.
     function coletarTaxas() external {
         poolManager.unlock(abi.encode(COLETAR, int24(0)));
+    }
+
+    /// @notice O recebedor saca as taxas de UMA moeda (token ou moeda da pool) para `_para`.
+    function sacarTaxas(Currency _c, address _para) external {
+        if (msg.sender != recebedorTaxas) revert SoRecebedor();
+        if (_para == address(0)) revert EnderecoZero();
+        address m = Currency.unwrap(_c);
+        uint256 v = aSacar[m];
+        aSacar[m] = 0;
+        if (v > 0) IERC20(m).safeTransfer(_para, v);
+        emit TaxasSacadas(m, _para, v);
     }
 
     function transferirRecebedor(address _novo) external {
@@ -248,7 +276,7 @@ contract PoolAGL is IUnlockCallback {
             }
             uint256 emToken = _sacar(token, true);
             uint256 emMoeda = _sacar(moeda, false);
-            emit TaxasColetadas(recebedorTaxas, emToken, emMoeda);
+            emit TaxasColetadas(emToken, emMoeda);
             return "";
         }
         // Só este contrato inicializa (o hook recusa os outros): a pool é nova.
@@ -267,7 +295,7 @@ contract PoolAGL is IUnlockCallback {
         // Paga o token devido (o arredondamento deixa poeira, que fica neste contrato).
         int256 d = poolManager.currencyDelta(address(this), token);
         if (d < 0) {
-            _somar(SLOT_ENTRADA, uint256(-d));
+            _somar(-d);
             poolManager.sync(token);
             IERC20(Currency.unwrap(token)).safeTransfer(address(poolManager), uint256(-d));
             poolManager.settle();
@@ -279,8 +307,9 @@ contract PoolAGL is IUnlockCallback {
         int256 d = poolManager.currencyDelta(address(this), _c);
         if (d > 0) {
             v = uint256(d);
-            if (_ehToken) _somar(SLOT_SAIDA, v);
-            poolManager.take(_c, recebedorTaxas, v);
+            if (_ehToken) _somar(-int256(v));
+            poolManager.take(_c, address(this), v);
+            aSacar[Currency.unwrap(_c)] += v;
         }
     }
 }

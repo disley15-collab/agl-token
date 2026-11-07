@@ -29,9 +29,10 @@ interface IPoolAGLLeitura {
 /// - CONTATO/INFORMAÇÃO: quem pede paga; o AGL fica reservado até o dono dos dados
 ///   responder. Aceitou → AGL ao recebedor e a plataforma revela fora da blockchain.
 ///   Recusou ou não respondeu em 7 dias → AGL de volta a quem pediu.
-/// - CONTRATO: comprador e vendedor assinam (transação = assinatura) o hash do contrato
-///   cifrado; o escrow só abre ordem com contrato assinado pelos dois. O cofre de
-///   documentos só entrega o arquivo a carteira que esteja em `partes`.
+/// - CONTRATO: comprador e vendedor (com KYC) assinam (transação = assinatura) o hash do
+///   contrato cifrado. A chave é (hash, comprador, vendedor): ninguém "sequestra" o hash de
+///   outros. O escrow só abre ordem com contrato assinado pelos dois; o cofre só entrega o
+///   arquivo a quem assinou (ou ao supervisor).
 ///
 /// Cotação: preço da pool, com piso no preço de lançamento — abaixo dele não existe
 /// liquidez e o preço só chega lá "empurrado" de graça, então não vale como cotação.
@@ -91,7 +92,6 @@ contract RegistroAGL is ReentrancyGuard {
     error PrazoNaoVenceu();
     error PrazoVencido();
     error ServicoErrado();
-    error ContratoExiste();
 
     event Verificado(address indexed carteira, uint64 ate);
     event PrecoDefinido(Servico indexed servico, uint256 precoMoeda);
@@ -205,38 +205,42 @@ contract RegistroAGL is ReentrancyGuard {
 
     /// @notice Registra o hash do contrato comercial (PDF cifrado no cofre) e as partes;
     /// quem registra já assina.
-    function registrarContrato(bytes32 _hash, address _comprador, address _vendedor) external {
+    function chaveContrato(bytes32 _hash, address _comprador, address _vendedor) public pure returns (bytes32) {
+        return keccak256(abi.encode(_hash, _comprador, _vendedor));
+    }
+
+    /// @notice Assina o contrato `_hash` entre `_comprador` e `_vendedor` (quem chama tem de
+    /// ser um dos dois, com KYC). O primeiro a assinar cria o registro.
+    function assinar(bytes32 _hash, address _comprador, address _vendedor) external {
         if (_hash == bytes32(0) || _comprador == address(0) || _vendedor == address(0) || _comprador == _vendedor) {
             revert EnderecoZero();
         }
         if (msg.sender != _comprador && msg.sender != _vendedor) revert SoParte();
-        if (contratos[_hash].comprador != address(0)) revert ContratoExiste();
-        contratos[_hash] = Contrato(_comprador, _vendedor, false, false);
-        emit ContratoRegistrado(_hash, _comprador, _vendedor);
-        _assinar(_hash);
-    }
-
-    function assinar(bytes32 _hash) external {
-        _assinar(_hash);
-    }
-
-    function _assinar(bytes32 _hash) internal {
-        Contrato storage c = contratos[_hash];
-        if (msg.sender == c.comprador) c.assinouComprador = true;
-        else if (msg.sender == c.vendedor) c.assinouVendedor = true;
-        else revert SoParte();
+        if (!verificado(msg.sender)) revert SemKYC(msg.sender);
+        bytes32 k = chaveContrato(_hash, _comprador, _vendedor);
+        Contrato storage c = contratos[k];
+        if (c.comprador == address(0)) {
+            (c.comprador, c.vendedor) = (_comprador, _vendedor);
+            emit ContratoRegistrado(_hash, _comprador, _vendedor);
+        }
+        if (msg.sender == _comprador) c.assinouComprador = true;
+        else c.assinouVendedor = true;
         emit ContratoAssinado(_hash, msg.sender);
     }
 
     function contratoAssinado(bytes32 _hash, address _comprador, address _vendedor) external view returns (bool) {
-        Contrato storage c = contratos[_hash];
-        return c.comprador == _comprador && c.vendedor == _vendedor && c.assinouComprador && c.assinouVendedor;
+        Contrato storage c = contratos[chaveContrato(_hash, _comprador, _vendedor)];
+        return c.assinouComprador && c.assinouVendedor;
     }
 
-    /// @notice Quem pode abrir o contrato cifrado (o cofre consulta antes de entregar).
-    function podeAbrir(bytes32 _hash, address _c) external view returns (bool) {
-        Contrato storage c = contratos[_hash];
-        return _c != address(0) && (_c == c.comprador || _c == c.vendedor || _c == supervisor);
+    /// @notice Quem pode abrir o contrato cifrado (o cofre consulta antes de entregar):
+    /// a parte que assinou, ou o supervisor quando as duas partes assinaram.
+    function podeAbrir(bytes32 _hash, address _comprador, address _vendedor, address _c) external view returns (bool) {
+        Contrato storage c = contratos[chaveContrato(_hash, _comprador, _vendedor)];
+        if (_c == address(0)) return false;
+        if (_c == _comprador) return c.assinouComprador;
+        if (_c == _vendedor) return c.assinouVendedor;
+        return _c == supervisor && c.assinouComprador && c.assinouVendedor;
     }
 
     // ------------------------------------------------------------ chaves

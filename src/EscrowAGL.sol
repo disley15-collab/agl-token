@@ -41,6 +41,11 @@ contract EscrowAGL is ReentrancyGuard {
     uint256 public constant CAUCAO_DISPUTA_BPS = 100; // 1% do negócio
     uint64 public constant PRAZO_DECISAO = 30 days;
     uint64 public constant JANELA_MIN = 2 days;
+    uint64 public constant JANELA_MAX = 30 days;
+    uint64 public constant INTERVALO_MIN = 1 days;
+    uint64 public constant INTERVALO_MAX = 30 days;
+    /// @notice Valor mínimo da ordem (unidades da moeda): abaixo disso as taxas arredondam a zero.
+    uint256 public constant VALOR_MIN = BPS;
 
     enum Modo {
         Simples,
@@ -193,10 +198,10 @@ contract EscrowAGL is ReentrancyGuard {
         if (!registro.verificado(msg.sender)) revert SemKYC(msg.sender);
         if (!registro.verificado(_vendedor)) revert SemKYC(_vendedor);
         if (
-            _vendedor == msg.sender || _valor == 0 || _bpsEmbarque > BPS || _hashContrato == bytes32(0)
-                || _prazos.janela < JANELA_MIN || _prazos.aceite <= block.timestamp || _prazos.embarque <= _prazos.aceite
+            _vendedor == msg.sender || _valor < VALOR_MIN || _bpsEmbarque > BPS || _hashContrato == bytes32(0)
+                || _prazos.janela < JANELA_MIN || _prazos.janela > JANELA_MAX || _prazos.aceite <= block.timestamp || _prazos.embarque <= _prazos.aceite
                 || _prazos.chegada <= _prazos.embarque || (_modo == Modo.Simples && _bpsEmbarque != 0)
-                || (_modo == Modo.Rastreado && _prazos.intervaloMax == 0)
+                || (_modo == Modo.Rastreado && (_prazos.intervaloMax < INTERVALO_MIN || _prazos.intervaloMax > INTERVALO_MAX))
         ) revert ParametroInvalido();
         if (!registro.contratoAssinado(_hashContrato, msg.sender, _vendedor)) revert ContratoNaoAssinado();
 
@@ -276,6 +281,7 @@ contract EscrowAGL is ReentrancyGuard {
         Ordem storage o = ordens[_id];
         if (msg.sender != o.vendedor) revert SoVendedor();
         _exigir(o, Etapa.Embarcada);
+        if (block.timestamp > o.prazos.chegada) revert PrazoVencido();
         if (_hashDocs == bytes32(0)) revert ParametroInvalido();
         o.etapa = Etapa.ChegadaInformada;
         o.hashDocs = _hashDocs;
@@ -359,6 +365,7 @@ contract EscrowAGL is ReentrancyGuard {
         if (msg.sender != supervisor) revert SoSupervisor();
         Ordem storage o = ordens[_id];
         _exigir(o, Etapa.EmDisputa);
+        if (block.timestamp > o.disputaEm + PRAZO_DECISAO) revert PrazoVencido();
         if (_bpsAoVendedor > BPS) revert ParametroInvalido();
         uint256 resto = o.valor - o.liberado;
         uint256 aoVendedor = resto * _bpsAoVendedor / BPS;

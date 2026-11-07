@@ -15,6 +15,24 @@ import { PoolAGL } from "../src/PoolAGL.sol";
 import { ICreateX } from "../src/ICreateX.sol";
 import { BaseAGL } from "./BaseAGL.sol";
 
+/// Faz vários swaps numa transação só e lê a cota no fim (transient storage).
+contract Sequencia {
+    receive() external payable { } // o roteador de teste devolve saldo nativo que já exista no endereço dele
+    function compraEVenda(PoolSwapTest r, PoolAGL p, AGL t, address moeda, uint256 v) external returns (int256, int256) {
+        bool t0 = p.tokenEhMoeda0();
+        IERC20(moeda).approve(address(r), type(uint256).max);
+        t.approve(address(r), type(uint256).max);
+        uint256 antes = t.balanceOf(address(this));
+        r.swap(p.chave(), SwapParams(!t0, -int256(v), t0 ? TickMath.MAX_SQRT_PRICE - 1 : TickMath.MIN_SQRT_PRICE + 1),
+            PoolSwapTest.TestSettings(false, false), "");
+        int256 depoisCompra = p.cota();
+        uint256 q = t.balanceOf(address(this)) - antes;
+        r.swap(p.chave(), SwapParams(t0, -int256(q), t0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1),
+            PoolSwapTest.TestSettings(false, false), "");
+        return (depoisCompra, p.cota());
+    }
+}
+
 /// Simula uma pool v2/v3 qualquer (um contrato que recebe AGL).
 contract PoolQualquer {
     function receber() external { }
@@ -33,6 +51,7 @@ contract AGLTest is BaseAGL {
         assertEq(noPM + poeira, SUPPLY, "100% na pool");
         assertLt(poeira, SUPPLY / 1e9, "poeira de arredondamento");
         assertEq(t.balanceOf(DONO), 0, "dono nao tem reserva");
+        assertEq(pool.cota(), 0, "cota zerada depois do lancamento");
         assertEq(t.decimals(), 9);
         assertEq(t.symbol(), "AGL");
         PoolAGL.Faixa[] memory fx = pool.todasAsFaixas();
@@ -86,6 +105,16 @@ contract AGLTest is BaseAGL {
         uint256 soma;
         for (uint256 i; i < g.length; i++) soma += g[i].quantidade;
         assertEq(soma, SUPPLY);
+    }
+
+    function test_S3_salt_do_token_precisa_ser_protegido() public {
+        pool = _publicarPool();
+        json = _escada(_enderecoToken());
+        PoolAGL.Faixa[] memory fx = _faixas();
+        bytes32 semProtecao = bytes32(uint256(_saltToken()) & ((1 << 96) - 1)); // 20 bytes zerados
+        vm.prank(DEPLOYER);
+        vm.expectRevert(PoolAGL.SaltSemProtecao.selector);
+        pool.lancar(semProtecao, int24(vm.parseJsonInt(json, ".tickInicial")), fx);
     }
 
     function test_endereco_de_hook_errado_recusado() public {
@@ -156,12 +185,68 @@ contract AGLTest is BaseAGL {
         _comprar(comprador, _unid(10_000));
         uint256 antes = IERC20(MOEDA).balanceOf(DONO);
         vm.prank(atacante);
-        pool.coletarTaxas();
+        pool.coletarTaxas(); // qualquer um traz as taxas; só o recebedor saca
+        Currency m = pool.moeda();
+        vm.prank(atacante);
+        vm.expectRevert(PoolAGL.SoRecebedor.selector);
+        pool.sacarTaxas(m, atacante);
+        vm.prank(DONO);
+        pool.sacarTaxas(m, DONO);
         assertApproxEqRel(IERC20(MOEDA).balanceOf(DONO) - antes, _unid(200), 0.001e18);
         // taxa da venda chega em AGL
         _vender(comprador, t.balanceOf(comprador));
         pool.coletarTaxas();
+        Currency tk = pool.token();
+        vm.prank(DONO);
+        pool.sacarTaxas(tk, DONO);
         assertGt(t.balanceOf(DONO), 0);
+    }
+
+    function test_saque_de_taxas_nao_repete() public {
+        _lancar();
+        _comprar(comprador, _unid(10_000));
+        pool.coletarTaxas();
+        Currency m = pool.moeda();
+        vm.startPrank(DONO);
+        pool.sacarTaxas(m, DONO);
+        uint256 depois = IERC20(MOEDA).balanceOf(DONO);
+        pool.sacarTaxas(m, DONO); // segunda vez: nada a sacar
+        vm.stopPrank();
+        assertEq(IERC20(MOEDA).balanceOf(DONO), depois);
+        assertEq(pool.aSacar(MOEDA), 0);
+    }
+
+    /// C1/C2 (auditoria): destino recusado numa moeda não trava a outra.
+    function test_C1_saque_por_moeda_nao_trava() public {
+        _lancar();
+        uint256 r = _comprar(comprador, _unid(10_000));
+        _vender(comprador, r / 2);
+        pool.coletarTaxas();
+        PoolQualquer cofre = new PoolQualquer(); // contrato fora da lista do AGL
+        (Currency tk, Currency m) = (pool.token(), pool.moeda());
+        vm.startPrank(DONO);
+        vm.expectRevert(abi.encodeWithSelector(AGL.ContratoNaoPermitido.selector, address(cofre)));
+        pool.sacarTaxas(tk, address(cofre));
+        pool.sacarTaxas(m, address(cofre)); // USDC sai normalmente
+        pool.sacarTaxas(tk, DONO); // AGL para outro destino
+        vm.stopPrank();
+        assertGt(IERC20(MOEDA).balanceOf(address(cofre)), 0);
+        assertGt(t.balanceOf(DONO), 0);
+    }
+
+    /// A2 (auditoria): ida e volta na pool oficial não fabrica cota.
+    function test_A2_ida_e_volta_nao_deixa_cota() public {
+        _lancar();
+        assertEq(pool.cota(), 0);
+        Sequencia sq = new Sequencia();
+        address[] memory l = new address[](1);
+        l[0] = address(sq);
+        vm.prank(DONO);
+        t.permitir(l);
+        deal(MOEDA, address(sq), _unid(1000));
+        (int256 c1, int256 c2) = sq.compraEVenda(router, pool, t, MOEDA, _unid(1000));
+        assertEq(c1, 0, "compra liquidada consome toda a cota");
+        assertEq(c2, 0, "venda liquidada consome toda a cota");
     }
 
     function test_liquidez_travada() public {

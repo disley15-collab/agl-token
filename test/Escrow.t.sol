@@ -90,9 +90,9 @@ contract EscrowBase is BaseAGL {
         h = keccak256(abi.encode("contrato", ++nContratos));
         vm.stopPrank();
         vm.prank(c);
-        reg.registrarContrato(h, c, v);
+        reg.assinar(h, c, v);
         vm.prank(v);
-        reg.assinar(h);
+        reg.assinar(h, c, v);
         vm.startPrank(c);
     }
 
@@ -132,12 +132,66 @@ contract EscrowBase is BaseAGL {
 }
 
 contract EscrowTest is EscrowBase {
+    // ------------------------------------------------------------ correções da auditoria
+
+    function test_E1_chegada_depois_do_prazo_recusada() public {
+        uint256 id = _criar(3000);
+        _ate(id, 3);
+        vm.warp(block.timestamp + 90 days + 1);
+        vm.prank(vend);
+        vm.expectRevert(EscrowAGL.PrazoVencido.selector);
+        esc.informarChegada(id, keccak256("tarde"));
+        esc.reembolsarPorPrazo(id);
+    }
+
+    function test_E2_supervisor_nao_decide_depois_de_30_dias() public {
+        uint256 id = _criar(3000);
+        _ate(id, 2);
+        deal(MOEDA, comp, V / 100);
+        vm.startPrank(comp);
+        IERC20(MOEDA).approve(address(esc), V / 100);
+        esc.contestar(id);
+        vm.stopPrank();
+        vm.warp(block.timestamp + 30 days + 1);
+        vm.prank(sup);
+        vm.expectRevert(EscrowAGL.PrazoVencido.selector);
+        esc.decidir(id, 10_000);
+        esc.reembolsarPorOmissao(id);
+    }
+
+    function test_E3_limites_de_janela_e_intervalo() public {
+        uint256 total = esc.totalADepositar(V);
+        deal(MOEDA, comp, total);
+        vm.startPrank(comp);
+        IERC20(MOEDA).approve(address(esc), total);
+        bytes32 h = _contrato(comp, vend);
+        EscrowAGL.Prazos memory p = _prazos();
+        p.janela = 31 days;
+        vm.expectRevert(EscrowAGL.ParametroInvalido.selector);
+        esc.criar(vend, MOEDA, V, EscrowAGL.Modo.Rastreado, 3000, h, p);
+        p = _prazos();
+        p.intervaloMax = 1 hours;
+        vm.expectRevert(EscrowAGL.ParametroInvalido.selector);
+        esc.criar(vend, MOEDA, V, EscrowAGL.Modo.Rastreado, 3000, h, p);
+        vm.stopPrank();
+    }
+
+    function test_E5_valor_minimo() public {
+        deal(MOEDA, comp, 1e30);
+        vm.startPrank(comp);
+        IERC20(MOEDA).approve(address(esc), type(uint256).max);
+        bytes32 h = _contrato(comp, vend);
+        vm.expectRevert(EscrowAGL.ParametroInvalido.selector);
+        esc.criar(vend, MOEDA, 9_999, EscrowAGL.Modo.Simples, 0, h, _prazos());
+        vm.stopPrank();
+    }
+
     function test_sem_contrato_assinado_nao_cria() public {
         uint256 total = esc.totalADepositar(V);
         deal(MOEDA, comp, total);
         vm.startPrank(comp);
         IERC20(MOEDA).approve(address(esc), total);
-        reg.registrarContrato(keccak256("so-comprador"), comp, vend);
+        reg.assinar(keccak256("so-comprador"), comp, vend);
         vm.expectRevert(EscrowAGL.ContratoNaoAssinado.selector);
         esc.criar(vend, MOEDA, V, EscrowAGL.Modo.Simples, 0, keccak256("so-comprador"), _prazos());
         vm.stopPrank();
@@ -200,15 +254,17 @@ contract EscrowTest is EscrowBase {
     function test_rastreado_silencio_permite_contestar() public {
         uint256 id = _criar(3000);
         _ate(id, 3);
+        vm.warp(block.timestamp + 4 days);
         vm.prank(vend);
         esc.atualizar(id, EscrowAGL.Tipo.Localizacao, keccak256("loc"), "navio a 300 milhas de Luanda");
+        vm.warp(block.timestamp + 2 days); // 6 dias desde o embarque, 2 desde a atualização
         deal(MOEDA, comp, V / 100);
         vm.prank(comp);
         IERC20(MOEDA).approve(address(esc), V / 100);
         vm.prank(comp);
         vm.expectRevert(abi.encodeWithSelector(EscrowAGL.EtapaErrada.selector, EscrowAGL.Etapa.Embarcada));
-        esc.contestar(id); // ainda dentro do intervalo
-        vm.warp(block.timestamp + 5 days + 1);
+        esc.contestar(id); // a atualização recente reinicia o intervalo
+        vm.warp(block.timestamp + 3 days + 1);
         vm.prank(comp);
         esc.contestar(id);
         assertEq(uint8(esc.ordem(id).etapa), uint8(EscrowAGL.Etapa.EmDisputa));
@@ -510,9 +566,9 @@ contract Ator is Test {
         vm.stopPrank();
         bytes32 h = keccak256(abi.encode("ator", ++n));
         vm.prank(comp);
-        reg.registrarContrato(h, comp, vend);
+        reg.assinar(h, comp, vend);
         vm.prank(vend);
-        reg.assinar(h);
+        reg.assinar(h, comp, vend);
         vm.startPrank(comp);
         ids.push(esc.criar(vend, moeda, valor, EscrowAGL.Modo.Rastreado, bps, h, p));
         vm.stopPrank();

@@ -11,8 +11,17 @@ SALT_POOL=$(python3 -c "import json;print(json.load(open('script/salt-pool.json'
 SALT_TOKEN=$(python3 -c "import json;print(json.load(open('script/salt-token.json'))['salt'])")
 TOKEN=$(python3 -c "import json;print(json.load(open('script/salt-token.json'))['endereco'])")
 python3 script/escada.py --token $TOKEN --moeda $moeda --casas-moeda $casas > script/escada-$REDE.json
-AGL_PK=$PK SALT_POOL=$SALT_POOL SALT_TOKEN=$SALT_TOKEN PM=$pm MOEDA=$moeda DONO=0x979514BddD0346FdD218c49B8242b92C1A6D0ffC \
-  ESCADA=script/escada-$REDE.json forge script script/Publicar.s.sol --rpc-url $R --broadcast --slow -q > publicacao-$REDE.log 2>&1
-echo "[$REDE] forge script: código $?"
-grep -E "pool/hook|token|rror" publicacao-$REDE.log | head -5
-script/conferir.sh $REDE $R
+EU=$(cast wallet address --private-key "$PK")
+SALT_REGISTRO=$(python3 -c "print('$EU'.lower()+'00'+b'agl-registr'.hex())")
+SALT_ESCROW=$(python3 -c "print('$EU'.lower()+'00'+b'agl-escrow0'.hex())")
+SALT_CAGL=$(python3 -c "print('$EU'.lower()+'00'+b'agl-confid0'.hex())")
+AGL_PK=$PK SALT_POOL=$SALT_POOL SALT_TOKEN=$SALT_TOKEN SALT_REGISTRO=$SALT_REGISTRO SALT_ESCROW=$SALT_ESCROW SALT_CAGL=$SALT_CAGL \
+  PM=$pm MOEDA=$moeda CASAS_MOEDA=$casas ESCADA=script/escada-$REDE.json forge script script/Publicar.s.sol --rpc-url $R --broadcast --slow > publicacao-$REDE.log 2>&1
+cod=$?
+echo "[$REDE] forge script: código $cod"
+[[ $cod == 0 ]] || { grep -E "rror" publicacao-$REDE.log | head -5; exit 1; }
+grep -E "pool/hook|token|registro|escrow|rror" publicacao-$REDE.log | head -6
+REGISTRO=$(grep -oP "registro \K0x[0-9a-fA-F]+" publicacao-$REDE.log) ESCROW=$(grep -oP "escrow \K0x[0-9a-fA-F]+" publicacao-$REDE.log) script/conferir.sh $REDE $R || exit 1
+if [[ $REDE == ethereum ]]; then
+  AGL_PK=$PK SALT_CAGL=$SALT_CAGL TOKEN=$TOKEN FOUNDRY_PROFILE=zama forge script zama/script/PublicarConfidencial.s.sol --rpc-url $R --broadcast --slow 2>&1 | grep -E "cAGL|rror" | head -3
+fi

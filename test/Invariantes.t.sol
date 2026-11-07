@@ -101,7 +101,7 @@ contract InvariantesTest is BaseAGL {
 
     /// Moeda nunca fica presa na PoolAGL nem vai a quem chamou a coleta.
     function invariant_moeda_so_no_recebedor() public view {
-        assertEq(IERC20(MOEDA).balanceOf(address(pool)), 0);
+        assertEq(IERC20(MOEDA).balanceOf(address(pool)), pool.aSacar(MOEDA), "USDC na pool = taxas a sacar");
         assertEq(IERC20(MOEDA).balanceOf(address(agente)), 0);
     }
 

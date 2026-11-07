@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SwapParams } from "v4-core/types/PoolOperation.sol";
+import { PoolKey } from "v4-core/types/PoolKey.sol";
 import { TickMath } from "v4-core/libraries/TickMath.sol";
 import { PoolSwapTest } from "v4-core/test/PoolSwapTest.sol";
 import { AGL } from "../src/AGL.sol";
@@ -68,17 +69,19 @@ contract RegistroTest is BaseAGL {
     function test_piso_de_preco_contra_manipulacao() public {
         uint256 antes = reg.precoEmAgl(RegistroAGL.Servico.Contato);
         bool t0 = pool.tokenEhMoeda0();
-        // vende tudo o que comprou e empurra para o extremo de baixo
-        uint256 r = t.balanceOf(a);
+        // um vendedor com AGL de sobra (deal) vende abaixo do lançamento: sem liquidez lá,
+        // o preço vai ao extremo
+        uint256 extra = 1e28;
+        deal(address(t), a, t.balanceOf(a) + extra);
+        PoolKey memory k = pool.chave();
         vm.startPrank(a);
         t.approve(address(router), type(uint256).max);
-        router.swap(
-            pool.chave(),
-            SwapParams(t0, -int256(r), t0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1),
-            PoolSwapTest.TestSettings(false, false),
-            ""
-        );
+        router.swap(k, SwapParams(t0, -int256(t.balanceOf(a)), t0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1),
+            PoolSwapTest.TestSettings(false, false), "");
         vm.stopPrank();
+        int24 ti = int24(vm.parseJsonInt(json, ".tickInicial"));
+        int24 d = _tick() > ti ? _tick() - ti : ti - _tick();
+        assertGt(d, 100_000, "preco foi empurrado para longe do lancamento");
         // sem o piso, o preço no extremo pediria ~infinitos AGL; com o piso fica no preço do lançamento
         assertApproxEqRel(reg.precoEmAgl(RegistroAGL.Servico.Contato), antes, 1e12, "piso segura o preco (1e-6)");
     }
@@ -142,25 +145,60 @@ contract RegistroTest is BaseAGL {
         reg.definirPreco(RegistroAGL.Servico.Contato, 1);
     }
 
+    function test_vendedor_assina_primeiro_comprador_ainda_nao_abre() public {
+        bytes32 h = keccak256("contrato-cafe");
+        vm.prank(b);
+        reg.assinar(h, a, b);
+        assertTrue(reg.podeAbrir(h, a, b, b));
+        assertFalse(reg.podeAbrir(h, a, b, a), "comprador ainda nao assinou");
+    }
+
     function test_contrato_assinatura_e_acesso() public {
         bytes32 h = keccak256("contrato-soja");
-        vm.prank(makeAddr("estranho"));
+        address est = makeAddr("estranho");
+        vm.prank(est);
         vm.expectRevert(RegistroAGL.SoParte.selector);
-        reg.registrarContrato(h, a, b);
+        reg.assinar(h, a, b);
         vm.prank(a);
-        reg.registrarContrato(h, a, b);
+        reg.assinar(h, a, b);
         assertFalse(reg.contratoAssinado(h, a, b), "falta o vendedor");
+        assertTrue(reg.podeAbrir(h, a, b, a), "quem assinou abre");
+        assertFalse(reg.podeAbrir(h, a, b, b), "vendedor ainda nao assinou");
+        assertFalse(reg.podeAbrir(h, a, b, sup), "supervisor so com as duas assinaturas");
         vm.prank(b);
-        reg.assinar(h);
+        reg.assinar(h, a, b);
         assertTrue(reg.contratoAssinado(h, a, b));
         assertFalse(reg.contratoAssinado(h, b, a), "papeis trocados nao valem");
-        assertTrue(reg.podeAbrir(h, a));
-        assertTrue(reg.podeAbrir(h, b));
-        assertTrue(reg.podeAbrir(h, sup));
-        assertFalse(reg.podeAbrir(h, makeAddr("estranho")));
+        assertTrue(reg.podeAbrir(h, a, b, b));
+        assertTrue(reg.podeAbrir(h, a, b, sup));
+        assertFalse(reg.podeAbrir(h, a, b, est));
+    }
+
+    /// R1 (auditoria): um estranho registra o mesmo hash com ELE como comprador; isso não
+    /// atrapalha o contrato verdadeiro e não lhe dá acesso ao arquivo.
+    function test_R1_hash_nao_e_sequestrado() public {
+        bytes32 h = keccak256("contrato-milho");
+        address est = makeAddr("estranho");
+        address[] memory c = new address[](1);
+        c[0] = est;
+        vm.prank(atest);
+        reg.atestar(c, uint64(block.timestamp + 1 days));
+        vm.prank(est);
+        reg.assinar(h, est, b);
         vm.prank(a);
-        vm.expectRevert(RegistroAGL.ContratoExiste.selector);
-        reg.registrarContrato(h, a, b);
+        reg.assinar(h, a, b);
+        vm.prank(b);
+        reg.assinar(h, a, b);
+        assertTrue(reg.contratoAssinado(h, a, b));
+        assertFalse(reg.podeAbrir(h, a, b, est));
+        assertFalse(reg.contratoAssinado(h, est, b), "o do estranho nao tem a assinatura do vendedor");
+    }
+
+    function test_assinar_exige_kyc() public {
+        address semKyc = makeAddr("semKyc");
+        vm.prank(semKyc);
+        vm.expectRevert(abi.encodeWithSelector(RegistroAGL.SemKYC.selector, semKyc));
+        reg.assinar(keccak256("x"), semKyc, b);
     }
 
     /// Sem o registro liberado no token, ele não consegue reservar AGL.
