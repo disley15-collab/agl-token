@@ -51,6 +51,8 @@ contract PoolAGL is IUnlockCallback {
     uint24 public constant TAXA = 20_000; // 2% (em milionésimos)
     int24 public constant ESPACAMENTO = 10;
     ICreateX public constant CREATEX = ICreateX(0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed);
+    /// @notice EndpointV2 da LayerZero (mesmo endereço nas 8 redes, conferido em 07/11).
+    address public constant ENDPOINT_LZ = 0x1a44076050125825900e736c501f859c50fE728c;
     uint160 internal constant BITS_HOOK =
         Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.AFTER_SWAP_FLAG;
     // slot transitório da cota líquida: keccak256("agl.cota.entrada")
@@ -218,7 +220,7 @@ contract PoolAGL is IUnlockCallback {
         lancado = true;
 
         address t = CREATEX.deployCreate3(
-            _saltToken, abi.encodePacked(type(AGL).creationCode, abi.encode(address(this), guardiaoToken))
+            _saltToken, abi.encodePacked(type(AGL).creationCode, abi.encode(address(this), guardiaoToken, ENDPOINT_LZ, lancador))
         );
         token = Currency.wrap(t);
         uint256 saldo = IERC20(t).balanceOf(address(this));

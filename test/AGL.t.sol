@@ -95,7 +95,7 @@ contract AGLTest is BaseAGL {
         pool = _publicarPool();
         vm.chainId(5);
         vm.expectRevert(abi.encodeWithSelector(AGL.RedeForaDaLista.selector, uint256(5)));
-        new AGL(address(pool), DONO);
+        new AGL(address(pool), DONO, 0x1a44076050125825900e736c501f859c50fE728c, DONO);
     }
 
     function test_so_lancador_e_uma_vez() public {

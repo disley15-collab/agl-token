@@ -49,7 +49,8 @@ abstract contract BaseAGL is Test {
             string[] memory c = vm.split(linhas[i], "\t");
             if (c.length < 6 || keccak256(bytes(c[0])) != keccak256(bytes(rede))) continue;
             chainid = vm.parseUint(c[1]);
-            vm.createSelectFork(vm.envOr("RPC", c[2]));
+            string memory rpcEnv = vm.envOr("RPC", string(""));
+            vm.createSelectFork(bytes(rpcEnv).length > 0 ? rpcEnv : c[2]);
             PM = IPoolManager(vm.parseAddress(c[3]));
             MOEDA = vm.parseAddress(c[4]);
             casasMoeda = uint8(vm.parseUint(c[5]));

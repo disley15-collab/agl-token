@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { ERC20Permit } from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import { OFT } from "@layerzerolabs/oft-evm/contracts/OFT.sol";
 
 /// Parte da PoolAGL que o token usa.
 interface IPoolAGL {
@@ -12,8 +14,13 @@ interface IPoolAGL {
 }
 
 /// @title AGL — token da AgroLastro
-/// @notice Mesmo endereço em todas as redes. Em cada rede: 1 sextilhão, 100% na pool
+/// @notice Mesmo endereço em todas as redes. Em cada rede nasce 1 sextilhão, 100% na pool
 /// oficial (Uniswap v4, pareada com USDC, liquidez travada).
+///
+/// PONTE (igual ao SDBR): LayerZero OFT. Enviar para outra rede QUEIMA aqui e CRIA lá; a soma
+/// das 8 redes nunca muda (8 sextilhões). O dono da ponte (peers, bibliotecas, verificadores)
+/// e o delegate ficam num Timelock de 7 dias. Casas compartilhadas = 0: só AGL inteiro viaja,
+/// até 1,8e19 AGL por envio.
 ///
 /// TRAVA "só as nossas pools" (lógica inversa reforçada):
 /// 1. Uniswap v4: o AGL só entra/sai do PoolManager dentro da cota que a pool oficial abre
@@ -26,11 +33,12 @@ interface IPoolAGL {
 /// Carteiras, agregadores, roteadores e carteiras inteligentes recebem normalmente.
 ///
 /// @dev Invariantes (provados em test/):
-/// 1. Supply fixo de 1e30 unidades por rede, criado uma vez no construtor, todo para a
-///    pool. Sem emitir, queimar, pausar, congelar, taxar transferência ou renomear.
+/// 1. Cada rede cria 1e30 unidades uma vez, no construtor, todas para a pool. Depois disso o
+///    supply só muda pela ponte (queima aqui = cria lá). Sem emitir fora da ponte, pausar,
+///    congelar, taxar transferência ou renomear.
 /// 2. A lista de liberados só CRESCE (`permitir`): o guardião nunca bloqueia ninguém.
 /// 3. Transferência de/para o PoolManager só dentro da cota da pool oficial.
-contract AGL is ERC20Permit {
+contract AGL is OFT, ERC20Permit {
     /// @notice 1 sextilhão de tokens (9 casas) EM CADA REDE.
     uint256 public constant SUPPLY_POR_REDE = 1e21 * 1e9;
 
@@ -55,7 +63,11 @@ contract AGL is ERC20Permit {
     event Permitido(address indexed contrato);
     event GuardiaoTrocado(address indexed guardiao);
 
-    constructor(address _pool, address _guardiao) ERC20("AgroLastro", "AGL") ERC20Permit("AgroLastro") {
+    constructor(address _pool, address _guardiao, address _endpoint, address _donoPonte)
+        OFT("AgroLastro", "AGL", _endpoint, _donoPonte)
+        ERC20Permit("AgroLastro")
+        Ownable(_donoPonte)
+    {
         if (!redeAceita(block.chainid)) revert RedeForaDaLista(block.chainid);
         if (_pool == address(0) || _guardiao == address(0)) revert EnderecoZero();
         pool = IPoolAGL(_pool);
@@ -68,6 +80,16 @@ contract AGL is ERC20Permit {
 
     function decimals() public pure override returns (uint8) {
         return 9;
+    }
+
+    function sharedDecimals() public pure override returns (uint8) {
+        return 0;
+    }
+
+    /// @notice Liga várias redes de uma vez: em rede EVM o par é este mesmo endereço.
+    function ligarRedesEVM(uint32[] calldata _eids) external onlyOwner {
+        bytes32 eu = bytes32(uint256(uint160(address(this))));
+        for (uint256 i; i < _eids.length; i++) _setPeer(_eids[i], eu);
     }
 
     /// @notice BSC, Base, Arbitrum, Polygon, Optimism, Avalanche, Celo e Ethereum.
