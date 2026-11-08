@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="474" viewBox="0 0 1500 474">
+<rect width="1500" height="474" fill="#12201a"/>
+<rect y="434" width="1500" height="40" fill="#d4a017"/>
+<g transform="translate(110 97) scale(1.0)"><circle cx="128" cy="128" r="128" fill="#1b2e25"/>
+<g transform="translate(77.18 50.6) scale(1.375)"><mask id="m"><rect width="73.92" height="82.88" fill="#fff"/><path d="M36.96 16.58 C42.87 34.81 42.87 51.39 36.96 69.62" stroke="#000" stroke-width="5.60" stroke-linecap="round" fill="none"/></mask><path d="M36.96 0 C73.92 16.58 73.92 66.30 36.96 82.88 C0 66.30 0 16.58 36.96 0Z" fill="#f3ead2" mask="url(#m)"/><rect x="0" y="90.72" width="73.92" height="21.28" fill="#d4a017"/></g></g>
+<text x="450" y="215" font-family="Hanken Grotesk, DejaVu Sans, sans-serif" font-size="92" font-weight="700" fill="#f3ead2">AgroLastro (AGL)</text>
+<text x="452" y="285" font-family="Hanken Grotesk, DejaVu Sans, sans-serif" font-size="33" fill="#d9cfb4">On-chain stablecoin escrow for Lusophone agricultural trade</text>
+<text x="452" y="345" font-family="DejaVu Sans Mono, monospace" font-size="26" fill="#d4a017">0x0000000000109de411eabC9f04906d79F06FDa0e · 8 EVM chains</text>
+</svg>
