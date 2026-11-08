@@ -24,8 +24,6 @@ interface IPoolAGLLeitura {
 }
 
 /// @title RegistroAGL — selo de KYC, serviços pagos em AGL e contratos assinados
-/// @author AgroLastro (Solidity Brasil)
-/// @custom:security-contact t.me/agrolastro
 ///
 /// - SELO: o provedor de KYC verifica a pessoa/empresa fora da blockchain; aqui fica só
 ///   "carteira X verificada até Y" (sem dados pessoais).
@@ -42,6 +40,8 @@ interface IPoolAGLLeitura {
 ///
 /// Cotação: preço da pool, com piso no preço de lançamento — abaixo dele não existe
 /// liquidez e o preço só chega lá "empurrado" de graça, então não vale como cotação.
+/// @author AgroLastro (Solidity Brasil)
+/// @custom:security-contact t.me/agrolastro
 contract RegistroAGL is ReentrancyGuard {
     using SafeERC20 for IERC20;
     using PoolIdLibrary for PoolKey;

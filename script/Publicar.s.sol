@@ -156,6 +156,15 @@ contract Publicar is Script {
                 uint32 e = uint32(outras[i]);
                 require(t.peers(e) == bytes32(uint256(uint160(address(t)))), "ponte nao ligada");
                 require(!ep.isDefaultSendLibrary(address(t), e), "ponte nao fixada");
+                // a renúncia é irreversível: só com 2+ verificadores obrigatórios nos dois sentidos
+                (address recebe,) = ep.getReceiveLibrary(address(t), e);
+                require(
+                    IUlnLeitura(ep.getSendLibrary(address(t), e)).getUlnConfig(address(t), e).requiredDVNCount >= 2,
+                    "envio: menos de 2 DVN"
+                );
+                require(
+                    IUlnLeitura(recebe).getUlnConfig(address(t), e).requiredDVNCount >= 2, "recebimento: menos de 2 DVN"
+                );
             }
             t.setDelegate(address(0));
             t.renounceOwnership();
@@ -209,7 +218,8 @@ contract Publicar is Script {
     /// Na ULN, contagem 0 = "use o padrão": troca por NIL para fixar "nenhum".
     function _explicita(UlnConfig memory c) internal pure returns (UlnConfig memory) {
         require(
-            c.confirmations > 0 && c.requiredDVNCount > 0 && c.requiredDVNCount != NIL_DVN, "ULN sem padrao fixavel"
+            c.confirmations > 0 && c.requiredDVNCount >= 2 && c.requiredDVNCount != NIL_DVN,
+            "ULN: menos de 2 verificadores"
         );
         if (c.optionalDVNCount == 0) {
             c.optionalDVNCount = NIL_DVN;

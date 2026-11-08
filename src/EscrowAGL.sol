@@ -13,8 +13,6 @@ interface IRegistro {
 }
 
 /// @title EscrowAGL — escrow de comércio agro em stablecoin, sem custódia da plataforma
-/// @author AgroLastro (Solidity Brasil)
-/// @custom:security-contact t.me/agrolastro
 ///
 /// Dois modos:
 /// - SIMPLES: o vendedor comprova o embarque (nota/conhecimento de transporte); o
@@ -37,6 +35,8 @@ interface IRegistro {
 /// 4. Pagamento por "puxar": a blacklist de uma carteira na stablecoin não trava as
 ///    outras, e o titular pode sacar para outro endereço.
 /// 5. Saldo do contrato em cada moeda = travado + saldos a sacar.
+/// @author AgroLastro (Solidity Brasil)
+/// @custom:security-contact t.me/agrolastro
 contract EscrowAGL is ReentrancyGuard {
     using SafeERC20 for IERC20;
 

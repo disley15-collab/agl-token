@@ -17,8 +17,6 @@ interface IPoolAGL {
 }
 
 /// @title AGL — token da AgroLastro
-/// @author AgroLastro (Solidity Brasil)
-/// @custom:security-contact t.me/agrolastro
 /// @notice Mesmo endereço em todas as redes. Em cada rede nasce 1 sextilhão, 100% na pool
 /// oficial (Uniswap v4, pareada com USDC, liquidez travada).
 ///
@@ -44,6 +42,8 @@ interface IPoolAGL {
 ///    congelar, taxar transferência ou renomear.
 /// 2. A lista de liberados só CRESCE (`permitir`): o guardião nunca bloqueia ninguém.
 /// 3. Transferência de/para o PoolManager só dentro da cota da pool oficial.
+/// @author AgroLastro (Solidity Brasil)
+/// @custom:security-contact t.me/agrolastro
 contract AGL is OFT, ERC20Permit {
     /// @notice 1 sextilhão de tokens (9 casas) EM CADA REDE.
     uint256 public constant SUPPLY_POR_REDE = 1e21 * 1e9;

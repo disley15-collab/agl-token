@@ -9,8 +9,6 @@ import {
 } from "@openzeppelin/confidential-contracts/token/ERC7984/extensions/ERC7984ERC20Wrapper.sol";
 
 /// @title cAGL — AGL confidencial (Ethereum, Zama fhEVM, padrão ERC-7984)
-/// @author AgroLastro (Solidity Brasil)
-/// @custom:security-contact t.me/agrolastro
 /// @notice Embrulha o AGL público 1:1 em tokens INTEIROS: saldos e transferências ficam
 /// cifrados (FHE); só o dono do saldo (e quem ele autorizar, como um auditor) consegue
 /// ver os valores. Desembrulhar devolve o AGL público.
@@ -22,6 +20,8 @@ import {
 ///   1 AGL volta para quem embrulhou.
 /// - Precisa estar na lista de contratos permitidos do AGL (guardião) para receber AGL.
 /// - Só funciona no Ethereum (e Sepolia): é onde o coprocessador da Zama está.
+/// @author AgroLastro (Solidity Brasil)
+/// @custom:security-contact t.me/agrolastro
 contract AGLConfidencial is ZamaEthereumConfig, ERC7984ERC20Wrapper {
     constructor(IERC20 agl_)
         ERC7984("AgroLastro Confidencial", "cAGL", "https://agrolastro.com/cagl.json")

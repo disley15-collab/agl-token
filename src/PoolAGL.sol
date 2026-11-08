@@ -24,8 +24,6 @@ interface IAGLSupply {
 }
 
 /// @title PoolAGL — publica o AGL e a pool oficial dele (Uniswap v4, AGL/USDC, taxa 2%)
-/// @author AgroLastro (Solidity Brasil)
-/// @custom:security-contact t.me/agrolastro
 /// na MESMA transação, com 100% do supply da rede na escada e a liquidez travada PARA SEMPRE.
 ///
 /// @dev Invariantes:
@@ -50,6 +48,8 @@ interface IAGLSupply {
 ///
 /// Endereço publicado pela CreateX com bits de hook exatamente
 /// BEFORE_INITIALIZE | BEFORE_ADD_LIQUIDITY | AFTER_SWAP (o construtor confere).
+/// @author AgroLastro (Solidity Brasil)
+/// @custom:security-contact t.me/agrolastro
 contract PoolAGL is IUnlockCallback {
     using SafeERC20 for IERC20;
     using PoolIdLibrary for PoolKey;
@@ -341,12 +341,12 @@ contract PoolAGL is IUnlockCallback {
                 poolManager.modifyLiquidity(k, ModifyLiquidityParams(faixas[i].inferior, faixas[i].superior, 0, 0), "");
             }
             // efeitos (saldos a sacar) de AMBAS as moedas antes de qualquer interação
-            Currency tk = token();
-            uint256 emToken = _aSacar(tk);
+            Currency tkColeta = token();
+            uint256 emToken = _aSacar(tkColeta);
             uint256 emMoeda = _aSacar(moeda);
             if (emToken > 0) {
                 _somar(-int256(emToken));
-                poolManager.take(tk, address(this), emToken);
+                poolManager.take(tkColeta, address(this), emToken);
             }
             if (emMoeda > 0) poolManager.take(moeda, address(this), emMoeda);
             emit TaxasColetadas(emToken, emMoeda);
