@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://agl.soliditybrasil.com.br/sitemap.xml
