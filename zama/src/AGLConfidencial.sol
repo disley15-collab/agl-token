@@ -18,7 +18,7 @@ import {
 /// - Valores confidenciais são `euint64`: com 0 casas, o teto é ~1,8e19 AGL (~US$18 bi a
 ///   US$1e-9). Por isso 1 cAGL = 1 AGL inteiro (rate = 1e9 unidades); a fração abaixo de
 ///   1 AGL volta para quem embrulhou.
-/// - Precisa estar na lista de contratos permitidos do AGL (guardião) para receber AGL.
+/// - Recebe AGL sem liberação (a trava do AGL só bloqueia pools e cofres de DEX).
 /// - Só funciona no Ethereum (e Sepolia): é onde o coprocessador da Zama está.
 /// @author AgroLastro (Solidity Brasil)
 /// @custom:security-contact t.me/agrolastro
