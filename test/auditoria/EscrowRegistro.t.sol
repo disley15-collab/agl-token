@@ -4,10 +4,10 @@ pragma solidity ^0.8.26;
 // Auditoria independente — Escrow e Registro.
 //   REDE=base forge test --match-contract EscrowRegistroAuditoria --isolate -vv
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { EscrowAGL } from "../../src/EscrowAGL.sol";
-import { RegistroAGL } from "../../src/RegistroAGL.sol";
-import { EscrowBase, IFiatToken } from "../Escrow.t.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {EscrowAGL} from "../../src/EscrowAGL.sol";
+import {RegistroAGL} from "../../src/RegistroAGL.sol";
+import {EscrowBase, IFiatToken} from "../Escrow.t.sol";
 
 contract EscrowRegistroAuditoria is EscrowBase {
     function _contestar(address quem, uint256 id) internal {

@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { SwapParams } from "v4-core/types/PoolOperation.sol";
-import { PoolKey } from "v4-core/types/PoolKey.sol";
-import { TickMath } from "v4-core/libraries/TickMath.sol";
-import { PoolSwapTest } from "v4-core/test/PoolSwapTest.sol";
-import { AGL } from "../src/AGL.sol";
-import { RegistroAGL, IPoolAGLLeitura } from "../src/RegistroAGL.sol";
-import { BaseAGL } from "./BaseAGL.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SwapParams} from "v4-core/types/PoolOperation.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {TickMath} from "v4-core/libraries/TickMath.sol";
+import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
+import {AGL} from "../src/AGL.sol";
+import {RegistroAGL, IPoolAGLLeitura} from "../src/RegistroAGL.sol";
+import {BaseAGL} from "./BaseAGL.sol";
 
 contract RegistroTest is BaseAGL {
     RegistroAGL reg;
@@ -22,7 +22,10 @@ contract RegistroTest is BaseAGL {
         super.setUp();
         _lancar();
         reg = new RegistroAGL(
-            IPoolAGLLeitura(address(pool)), receb, sup, atest,
+            IPoolAGLLeitura(address(pool)),
+            receb,
+            sup,
+            atest,
             TickMath.getSqrtPriceAtTick(int24(vm.parseJsonInt(json, ".tickInicial")))
         );
         // o registro guarda AGL dos pedidos: o guardião (dono) libera o contrato no token
@@ -76,8 +79,12 @@ contract RegistroTest is BaseAGL {
         PoolKey memory k = pool.chave();
         vm.startPrank(a);
         t.approve(address(router), type(uint256).max);
-        router.swap(k, SwapParams(t0, -int256(t.balanceOf(a)), t0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1),
-            PoolSwapTest.TestSettings(false, false), "");
+        router.swap(
+            k,
+            SwapParams(t0, -int256(t.balanceOf(a)), t0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1),
+            PoolSwapTest.TestSettings(false, false),
+            ""
+        );
         vm.stopPrank();
         int24 ti = int24(vm.parseJsonInt(json, ".tickInicial"));
         int24 d = _tick() > ti ? _tick() - ti : ti - _tick();
@@ -89,7 +96,7 @@ contract RegistroTest is BaseAGL {
     function test_contato_aceito_paga_o_dono() public {
         vm.prank(a);
         uint256 id = reg.pedir(b, RegistroAGL.Servico.Contato, type(uint256).max);
-        (,,,, uint256 v,) = reg.pedidos(id);
+        (,,,,, uint256 v) = reg.pedidos(id);
         assertEq(t.balanceOf(address(reg)), v, "reservado");
         vm.prank(a);
         vm.expectRevert(RegistroAGL.SoAlvo.selector);

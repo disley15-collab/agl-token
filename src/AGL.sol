@@ -1,19 +1,24 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity 0.8.38;
 
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import { ERC20Permit } from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
-import { OFT } from "@layerzerolabs/oft-evm/contracts/OFT.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import {OFT} from "@layerzerolabs/oft-evm/contracts/OFT.sol";
 
 /// Parte da PoolAGL que o token usa.
 interface IPoolAGL {
+    /// @notice PoolManager do Uniswap v4 desta rede.
     function poolManager() external view returns (address);
-    function consumirEntrada(uint256 _v) external;
-    function consumirSaida(uint256 _v) external;
+    /// @notice Consome cota de entrada de AGL no PoolManager (só o token chama).
+    function consumirEntrada(uint256 v) external;
+    /// @notice Consome cota de saída de AGL do PoolManager (só o token chama).
+    function consumirSaida(uint256 v) external;
 }
 
 /// @title AGL — token da AgroLastro
+/// @author AgroLastro (Solidity Brasil)
+/// @custom:security-contact t.me/agrolastro
 /// @notice Mesmo endereço em todas as redes. Em cada rede nasce 1 sextilhão, 100% na pool
 /// oficial (Uniswap v4, pareada com USDC, liquidez travada).
 ///
@@ -65,77 +70,82 @@ contract AGL is OFT, ERC20Permit {
     event Permitido(address indexed contrato);
     event GuardiaoTrocado(address indexed guardiao);
 
-    constructor(address _pool, address _guardiao, address _endpoint, address _donoPonte)
-        OFT("AgroLastro", "AGL", _endpoint, _donoPonte)
+    constructor(address pool_, address guardiao_, address endpoint_, address donoPonte)
+        OFT("AgroLastro", "AGL", endpoint_, donoPonte)
         ERC20Permit("AgroLastro")
-        Ownable(_donoPonte)
+        Ownable(donoPonte)
     {
         if (!redeAceita(block.chainid)) revert RedeForaDaLista(block.chainid);
-        if (_pool == address(0) || _guardiao == address(0)) revert EnderecoZero();
-        pool = IPoolAGL(_pool);
-        poolManager = IPoolAGL(_pool).poolManager();
-        guardiao = _guardiao;
-        permitido[_pool] = true;
-        emit Permitido(_pool);
-        _mint(_pool, SUPPLY_POR_REDE);
+        if (pool_ == address(0) || guardiao_ == address(0)) revert EnderecoZero();
+        pool = IPoolAGL(pool_);
+        poolManager = IPoolAGL(pool_).poolManager();
+        guardiao = guardiao_;
+        permitido[pool_] = true;
+        emit Permitido(pool_);
+        _mint(pool_, SUPPLY_POR_REDE);
     }
 
+    /// @notice 9 casas: 1 sextilhão em unidades (1e30) cabe no int128 do Uniswap v4.
     function decimals() public pure override returns (uint8) {
         return 9;
     }
 
+    /// @notice Casas compartilhadas da ponte = 0: só AGL inteiro viaja (até 1,8e19 por envio).
     function sharedDecimals() public pure override returns (uint8) {
         return 0;
     }
 
     /// @notice Liga várias redes de uma vez: em rede EVM o par é este mesmo endereço.
-    function ligarRedesEVM(uint32[] calldata _eids) external onlyOwner {
+    function ligarRedesEVM(uint32[] calldata eids) external onlyOwner {
         bytes32 eu = bytes32(uint256(uint160(address(this))));
-        for (uint256 i; i < _eids.length; i++) _setPeer(_eids[i], eu);
+        for (uint256 i; i < eids.length; i++) {
+            _setPeer(eids[i], eu);
+        }
     }
 
     /// @notice BSC, Base, Arbitrum, Polygon, Optimism, Avalanche, Celo e Ethereum.
-    function redeAceita(uint256 _id) public pure returns (bool) {
-        return _id == 56 || _id == 8453 || _id == 42161 || _id == 137 || _id == 10 || _id == 43114 || _id == 42220
-            || _id == 1;
+    function redeAceita(uint256 id) public pure returns (bool) {
+        return id == 56 || id == 8453 || id == 42161 || id == 137 || id == 10 || id == 43114 || id == 42220 || id == 1;
     }
 
     /// @notice Libera uma pool criada pelo emissor (ex.: AGL/USDC na Uniswap v3 ou Pancake v3)
     /// para receber AGL. Não há como desfazer.
-    function permitir(address[] calldata _contratos) external {
+    function permitir(address[] calldata contratos_) external {
         if (msg.sender != guardiao) revert SoGuardiao();
-        for (uint256 i; i < _contratos.length; i++) {
-            permitido[_contratos[i]] = true;
-            emit Permitido(_contratos[i]);
+        for (uint256 i; i < contratos_.length; i++) {
+            permitido[contratos_[i]] = true;
+            emit Permitido(contratos_[i]);
         }
     }
 
-    function trocarGuardiao(address _novo) external {
+    /// @notice Passa o papel de guardião (só ele chama).
+    /// @param novo Novo guardião (não pode ser o endereço zero).
+    function trocarGuardiao(address novo) external {
         if (msg.sender != guardiao) revert SoGuardiao();
-        if (_novo == address(0)) revert EnderecoZero();
-        guardiao = _novo;
-        emit GuardiaoTrocado(_novo);
+        if (novo == address(0)) revert EnderecoZero();
+        guardiao = novo;
+        emit GuardiaoTrocado(novo);
     }
 
-    function _update(address _de, address _para, uint256 _valor) internal override {
+    function _update(address de, address para, uint256 valor) internal override {
         address pm = poolManager;
-        if (_para == pm) {
+        if (para == pm) {
             // criação (ponte) direto no PoolManager nunca: a cota de outro swap a capturaria
-            if (_de == address(0)) revert CriacaoNoPoolManager();
-            pool.consumirEntrada(_valor);
+            if (de == address(0)) revert CriacaoNoPoolManager();
+            pool.consumirEntrada(valor);
         } else {
-            if (_de == pm) pool.consumirSaida(_valor);
-            if (_para != address(0) && _ehContrato(_para)) {
+            if (de == pm) pool.consumirSaida(valor);
+            if (para != address(0) && _ehContrato(para)) {
                 // cofres de DEX com taxa livre: bloqueados sempre (nem o guardião libera)
-                if (_ehCofreDeDex(_para)) revert CofreDeDexBloqueado(_para);
-                if (!permitido[_para] && _parecePoolDoAgl(_para)) revert PoolNaoAutorizada(_para);
+                if (_ehCofreDeDex(para)) revert CofreDeDexBloqueado(para);
+                if (!permitido[para] && _parecePoolDoAgl(para)) revert PoolNaoAutorizada(para);
             }
         }
-        super._update(_de, _para, _valor);
+        super._update(de, para, valor);
     }
 
-    function _ehCofreDeDex(address _a) internal pure returns (bool) {
-        return _a == PANCAKE_INFINITY_VAULT || _a == BALANCER_V2_VAULT || _a == BALANCER_V3_VAULT || _a == EKUBO_CORE;
+    function _ehCofreDeDex(address a) internal pure returns (bool) {
+        return a == PANCAKE_INFINITY_VAULT || a == BALANCER_V2_VAULT || a == BALANCER_V3_VAULT || a == EKUBO_CORE;
     }
 
     /// Pool do AGL = responde, com este token, alguma das interfaces de par usadas pelos DEX
@@ -144,36 +154,40 @@ contract AGL is OFT, ERC20Permit {
     /// Liquidity Book), tokenA/tokenB (Maverick), tokenX/tokenY (iZiSwap), _BASE_TOKEN_ e
     /// _QUOTE_TOKEN_ (DODO). Limite conhecido: um AMM feito sob medida para enganar a sonda
     /// passa, mas não é indexado pelos agregadores.
-    function _parecePoolDoAgl(address _a) internal view returns (bool) {
-        bytes4[12] memory sel = [
-            bytes4(0x0dfe1681), // token0()
-            0xd21220a7, // token1()
-            0x05e8746d, // getTokenX()
-            0xda10610c, // getTokenY()
-            0x0fc63d10, // tokenA()
-            0x5f64b55b, // tokenB()
-            0x16dc165b, // tokenX()
-            0xb7d19fc4, // tokenY()
-            0x4a248d2a, // _BASE_TOKEN_()
-            0xd4b97046, // _QUOTE_TOKEN_()
-            0xc6610657, // coins(uint256) com 0
-            0xc6610657 // coins(uint256) com 1
-        ];
-        for (uint256 i; i < 12; i++) {
-            bytes memory chamada = i < 10 ? abi.encodePacked(sel[i]) : abi.encodeWithSelector(sel[i], i - 10);
-            if (_sonda(_a, chamada)) return true;
-        }
-        return false;
+    function _parecePoolDoAgl(address a) internal view returns (bool) {
+        // seletores sem argumento (10) e coins(uint256) com 0 e 1
+        return _sonda(a, 0x0dfe1681, false, 0) // token0()
+            || _sonda(a, 0xd21220a7, false, 0) // token1()
+            || _sonda(a, 0x05e8746d, false, 0) // getTokenX()
+            || _sonda(a, 0xda10610c, false, 0) // getTokenY()
+            || _sonda(a, 0x0fc63d10, false, 0) // tokenA()
+            || _sonda(a, 0x5f64b55b, false, 0) // tokenB()
+            || _sonda(a, 0x16dc165b, false, 0) // tokenX()
+            || _sonda(a, 0xb7d19fc4, false, 0) // tokenY()
+            || _sonda(a, 0x4a248d2a, false, 0) // _BASE_TOKEN_()
+            || _sonda(a, 0xd4b97046, false, 0) // _QUOTE_TOKEN_()
+            || _sonda(a, 0xc6610657, true, 0) // coins(0)
+            || _sonda(a, 0xc6610657, true, 1); // coins(1)
     }
 
-    function _sonda(address _a, bytes memory _chamada) internal view returns (bool) {
-        (bool ok, bytes memory r) = _a.staticcall{ gas: GAS_SONDA }(_chamada);
-        return ok && r.length == 32 && abi.decode(r, (uint256)) == uint256(uint160(address(this)));
+    /// staticcall com gás limitado que copia NO MÁXIMO 32 bytes de resposta (sem "return
+    /// bomb": um contrato que devolve dados enormes não encarece a transferência).
+    function _sonda(address a, bytes4 sel, bool comArg, uint256 arg) internal view returns (bool r) {
+        uint256 gas_ = GAS_SONDA;
+        assembly ("memory-safe") {
+            let p := mload(0x40)
+            mstore(p, sel)
+            mstore(add(p, 4), arg)
+            let tam := 4
+            if comArg { tam := 36 }
+            let ok := staticcall(gas_, a, p, tam, p, 32)
+            r := and(ok, and(eq(returndatasize(), 32), eq(mload(p), address())))
+        }
     }
 
     /// Contrato = tem código. Contas EIP-7702 (código 0xef0100 || alvo) também passam pela
     /// sonda: delegadas a uma carteira normal recebem; delegadas a código de pool, não.
-    function _ehContrato(address _a) internal view returns (bool) {
-        return _a.code.length > 0;
+    function _ehContrato(address a) internal view returns (bool) {
+        return a.code.length > 0;
     }
 }

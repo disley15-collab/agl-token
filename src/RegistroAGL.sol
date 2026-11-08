@@ -1,30 +1,36 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity 0.8.38;
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import { IPoolManager } from "v4-core/interfaces/IPoolManager.sol";
-import { PoolKey } from "v4-core/types/PoolKey.sol";
-import { PoolIdLibrary } from "v4-core/types/PoolId.sol";
-import { Currency } from "v4-core/types/Currency.sol";
-import { StateLibrary } from "v4-core/libraries/StateLibrary.sol";
-import { TickMath } from "v4-core/libraries/TickMath.sol";
-import { FullMath } from "v4-core/libraries/FullMath.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
+import {Currency} from "v4-core/types/Currency.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {TickMath} from "v4-core/libraries/TickMath.sol";
+import {FullMath} from "v4-core/libraries/FullMath.sol";
 
 interface IPoolAGLLeitura {
+    /// @notice Chave da pool oficial.
     function chave() external view returns (PoolKey memory);
+    /// @notice PoolManager desta rede.
     function poolManager() external view returns (IPoolManager);
+    /// @notice Endereço do AGL.
     function token() external view returns (Currency);
+    /// @notice true se o AGL é a currency0.
     function tokenEhMoeda0() external view returns (bool);
 }
 
 /// @title RegistroAGL — selo de KYC, serviços pagos em AGL e contratos assinados
+/// @author AgroLastro (Solidity Brasil)
+/// @custom:security-contact t.me/agrolastro
 ///
 /// - SELO: o provedor de KYC verifica a pessoa/empresa fora da blockchain; aqui fica só
 ///   "carteira X verificada até Y" (sem dados pessoais).
 /// - SERVIÇOS (cadastro, KYC, KYB, contato, informação extra): preço em moeda (USDC),
-///   pago em AGL pela cotação da pool oficial, com teto do pagador (`_maxAgl`). O AGL vai
+///   pago em AGL pela cotação da pool oficial, com teto do pagador (`maxAgl`). O AGL vai
 ///   para a carteira de recebimento.
 /// - CONTATO/INFORMAÇÃO: quem pede paga; o AGL fica reservado até o dono dos dados
 ///   responder. Aceitou → AGL ao recebedor e a plataforma revela fora da blockchain.
@@ -49,13 +55,14 @@ contract RegistroAGL is ReentrancyGuard {
         InfoExtra
     }
 
+    /// Campos ordenados para caber em 3 slots (antes, 5).
     struct Pedido {
         address quem;
-        address alvo;
         Servico servico;
         uint64 ate;
-        uint256 agl;
         bool fechado;
+        address alvo;
+        uint256 valorAgl;
     }
 
     struct Contrato {
@@ -68,6 +75,10 @@ contract RegistroAGL is ReentrancyGuard {
     uint64 public constant PRAZO_RESPOSTA = 7 days;
 
     IPoolAGLLeitura public immutable pool;
+    // dados da pool gravados na criação (sem 3 chamadas externas a cada cobrança)
+    IPoolManager internal immutable pmCache;
+    bytes32 internal immutable idPool;
+    bool internal immutable aglEhMoeda0;
     IERC20 public immutable agl;
     address public immutable recebedor;
     uint160 public immutable sqrtPiso; // sqrtPrice do lançamento
@@ -104,44 +115,56 @@ contract RegistroAGL is ReentrancyGuard {
     event AtestadorTrocado(address indexed atestador);
     event SupervisorTrocado(address indexed supervisor);
 
-    constructor(IPoolAGLLeitura _pool, address _recebedor, address _supervisor, address _atestador, uint160 _sqrtPiso) {
-        if (_recebedor == address(0) || _supervisor == address(0) || _atestador == address(0)) revert EnderecoZero();
-        pool = _pool;
-        agl = IERC20(Currency.unwrap(_pool.token()));
-        recebedor = _recebedor;
-        supervisor = _supervisor;
-        atestador = _atestador;
-        sqrtPiso = _sqrtPiso;
+    constructor(IPoolAGLLeitura pool_, address recebedor_, address supervisor_, address atestador_, uint160 sqrtPiso_) {
+        if (recebedor_ == address(0) || supervisor_ == address(0) || atestador_ == address(0)) revert EnderecoZero();
+        pool = pool_;
+        pmCache = pool_.poolManager();
+        idPool = PoolId.unwrap(pool_.chave().toId());
+        aglEhMoeda0 = pool_.tokenEhMoeda0();
+        agl = IERC20(Currency.unwrap(pool_.token()));
+        recebedor = recebedor_;
+        supervisor = supervisor_;
+        atestador = atestador_;
+        sqrtPiso = sqrtPiso_;
     }
 
     // ------------------------------------------------------------ selo
 
-    function verificado(address _c) public view returns (bool) {
-        return verificadoAte[_c] >= block.timestamp;
+    /// @notice true se a carteira tem selo de KYC válido agora.
+    /// @param c Carteira.
+    function verificado(address c) public view returns (bool) {
+        return verificadoAte[c] >= block.timestamp;
     }
 
-    function atestar(address[] calldata _carteiras, uint64 _ate) external {
+    /// @notice Grava (ou revoga, com `ate_` = 0) o selo de KYC (só o atestador).
+    /// @param carteiras Carteiras verificadas.
+    /// @param ate_ Validade do selo (timestamp).
+    function atestar(address[] calldata carteiras, uint64 ate_) external {
         if (msg.sender != atestador) revert SoAtestador();
-        for (uint256 i; i < _carteiras.length; i++) {
-            verificadoAte[_carteiras[i]] = _ate;
-            emit Verificado(_carteiras[i], _ate);
+        for (uint256 i; i < carteiras.length; i++) {
+            verificadoAte[carteiras[i]] = ate_;
+            emit Verificado(carteiras[i], ate_);
         }
     }
 
     // ------------------------------------------------------------ preço
 
-    function definirPreco(Servico _s, uint256 _precoMoeda) external {
+    /// @notice Define o preço de um serviço em unidades da moeda da pool (só o supervisor).
+    /// @param s Serviço.
+    /// @param precoMoeda_ Preço (ex.: 25e6 = US$25 com USDC de 6 casas).
+    function definirPreco(Servico s, uint256 precoMoeda_) external {
         if (msg.sender != supervisor) revert SoSupervisor();
-        precoMoeda[_s] = _precoMoeda;
-        emit PrecoDefinido(_s, _precoMoeda);
+        precoMoeda[s] = precoMoeda_;
+        emit PrecoDefinido(s, precoMoeda_);
     }
 
     /// @notice Quanto AGL custa o serviço agora (preço da pool, com piso no lançamento).
-    function precoEmAgl(Servico _s) public view returns (uint256) {
-        uint256 p = precoMoeda[_s];
+    function precoEmAgl(Servico s) public view returns (uint256) {
+        uint256 p = precoMoeda[s];
         if (p == 0) revert PrecoNaoDefinido();
-        (uint160 sp,,,) = pool.poolManager().getSlot0(pool.chave().toId());
-        bool t0 = pool.tokenEhMoeda0();
+        // slither-disable-next-line unused-return
+        (uint160 sp,,,) = pmCache.getSlot0(PoolId.wrap(idPool));
+        bool t0 = aglEhMoeda0;
         // token0: preço do AGL sobe com sqrtP; piso = sqrtPiso. token1: espelhado.
         if (t0 ? sp < sqrtPiso : sp > sqrtPiso) sp = sqrtPiso;
         // moeda por AGL (unidades) = sp^2 / 2^192 (token0)  →  AGL = moeda * 2^192 / sp^2
@@ -152,110 +175,119 @@ contract RegistroAGL is ReentrancyGuard {
 
     // ------------------------------------------------------------ serviços
 
-    /// @notice Paga cadastro, KYC ou KYB em AGL (aprovar antes). `_ref` = protocolo do
+    /// @notice Paga cadastro, KYC ou KYB em AGL (aprovar antes). `ref` = protocolo do
     /// pedido no provedor de KYC.
-    function pagarServico(Servico _s, bytes32 _ref, uint256 _maxAgl) external nonReentrant {
-        if (_s == Servico.Contato || _s == Servico.InfoExtra) revert ServicoErrado();
-        uint256 v = _cobrar(_s, _maxAgl);
+    function pagarServico(Servico s, bytes32 ref, uint256 maxAgl) external nonReentrant {
+        if (s == Servico.Contato || s == Servico.InfoExtra) revert ServicoErrado();
+        uint256 v = _cobrar(s, maxAgl);
         agl.safeTransferFrom(msg.sender, recebedor, v);
-        emit ServicoPago(msg.sender, _s, _ref, v);
+        emit ServicoPago(msg.sender, s, ref, v);
     }
 
-    /// @notice Pede o contato (ou uma informação extra) de `_alvo`. O AGL fica reservado
-    /// aqui até `_alvo` responder.
-    function pedir(address _alvo, Servico _s, uint256 _maxAgl) external nonReentrant returns (uint256 id) {
-        if (_s != Servico.Contato && _s != Servico.InfoExtra) revert ServicoErrado();
+    /// @notice Pede o contato (ou uma informação extra) de `alvo_`. O AGL fica reservado
+    /// aqui até `alvo_` responder.
+    function pedir(address alvo_, Servico s, uint256 maxAgl) external nonReentrant returns (uint256 id) {
+        if (s != Servico.Contato && s != Servico.InfoExtra) revert ServicoErrado();
         if (!verificado(msg.sender)) revert SemKYC(msg.sender);
-        if (!verificado(_alvo)) revert SemKYC(_alvo);
-        uint256 v = _cobrar(_s, _maxAgl);
+        if (!verificado(alvo_)) revert SemKYC(alvo_);
+        uint256 v = _cobrar(s, maxAgl);
         id = ++totalPedidos;
-        pedidos[id] = Pedido(msg.sender, _alvo, _s, uint64(block.timestamp) + PRAZO_RESPOSTA, v, false);
+        pedidos[id] = Pedido(msg.sender, s, uint64(block.timestamp) + PRAZO_RESPOSTA, false, alvo_, v);
         agl.safeTransferFrom(msg.sender, address(this), v);
-        emit PedidoCriado(id, msg.sender, _alvo, _s, v);
+        emit PedidoCriado(id, msg.sender, alvo_, s, v);
     }
 
     /// @notice O dono dos dados aceita (AGL ao recebedor; a plataforma revela) ou recusa
     /// (AGL de volta a quem pediu).
-    function responder(uint256 _id, bool _aceito) external nonReentrant {
-        Pedido storage p = pedidos[_id];
+    function responder(uint256 id, bool aceito) external nonReentrant {
+        Pedido storage p = pedidos[id];
         if (msg.sender != p.alvo) revert SoAlvo();
         if (p.fechado) revert PedidoFechado();
         if (block.timestamp > p.ate) revert PrazoVencido();
         p.fechado = true;
-        agl.safeTransfer(_aceito ? recebedor : p.quem, p.agl);
-        emit PedidoRespondido(_id, _aceito);
+        agl.safeTransfer(aceito ? recebedor : p.quem, p.valorAgl);
+        emit PedidoRespondido(id, aceito);
     }
 
     /// @notice Sem resposta no prazo, qualquer um devolve o AGL a quem pediu.
-    function devolver(uint256 _id) external nonReentrant {
-        Pedido storage p = pedidos[_id];
+    function devolver(uint256 id) external nonReentrant {
+        Pedido storage p = pedidos[id];
         if (p.fechado) revert PedidoFechado();
         if (block.timestamp <= p.ate) revert PrazoNaoVenceu();
         p.fechado = true;
-        agl.safeTransfer(p.quem, p.agl);
-        emit PedidoDevolvido(_id);
+        agl.safeTransfer(p.quem, p.valorAgl);
+        emit PedidoDevolvido(id);
     }
 
-    function _cobrar(Servico _s, uint256 _maxAgl) internal view returns (uint256 v) {
-        v = precoEmAgl(_s);
-        if (v > _maxAgl) revert AcimaDoTeto(v, _maxAgl);
+    function _cobrar(Servico s, uint256 maxAgl) internal view returns (uint256 v) {
+        v = precoEmAgl(s);
+        if (v > maxAgl) revert AcimaDoTeto(v, maxAgl);
     }
 
     // ------------------------------------------------------------ contrato
 
     /// @notice Registra o hash do contrato comercial (PDF cifrado no cofre) e as partes;
     /// quem registra já assina.
-    function chaveContrato(bytes32 _hash, address _comprador, address _vendedor) public pure returns (bytes32) {
-        return keccak256(abi.encode(_hash, _comprador, _vendedor));
+    function chaveContrato(bytes32 hash, address comprador_, address vendedor_) public pure returns (bytes32) {
+        return keccak256(abi.encode(hash, comprador_, vendedor_));
     }
 
-    /// @notice Assina o contrato `_hash` entre `_comprador` e `_vendedor` (quem chama tem de
+    /// @notice Assina o contrato `hash` entre `comprador_` e `vendedor_` (quem chama tem de
     /// ser um dos dois, com KYC). O primeiro a assinar cria o registro.
-    function assinar(bytes32 _hash, address _comprador, address _vendedor) external {
-        if (_hash == bytes32(0) || _comprador == address(0) || _vendedor == address(0) || _comprador == _vendedor) {
+    function assinar(bytes32 hash, address comprador_, address vendedor_) external {
+        if (hash == bytes32(0) || comprador_ == address(0) || vendedor_ == address(0) || comprador_ == vendedor_) {
             revert EnderecoZero();
         }
-        if (msg.sender != _comprador && msg.sender != _vendedor) revert SoParte();
+        if (msg.sender != comprador_ && msg.sender != vendedor_) revert SoParte();
         if (!verificado(msg.sender)) revert SemKYC(msg.sender);
-        bytes32 k = chaveContrato(_hash, _comprador, _vendedor);
+        bytes32 k = chaveContrato(hash, comprador_, vendedor_);
         Contrato storage c = contratos[k];
         if (c.comprador == address(0)) {
-            (c.comprador, c.vendedor) = (_comprador, _vendedor);
-            emit ContratoRegistrado(_hash, _comprador, _vendedor);
+            (c.comprador, c.vendedor) = (comprador_, vendedor_);
+            emit ContratoRegistrado(hash, comprador_, vendedor_);
         }
-        if (msg.sender == _comprador) c.assinouComprador = true;
+        if (msg.sender == comprador_) c.assinouComprador = true;
         else c.assinouVendedor = true;
-        emit ContratoAssinado(_hash, msg.sender);
+        emit ContratoAssinado(hash, msg.sender);
     }
 
-    function contratoAssinado(bytes32 _hash, address _comprador, address _vendedor) external view returns (bool) {
-        Contrato storage c = contratos[chaveContrato(_hash, _comprador, _vendedor)];
+    /// @notice true se comprador e vendedor assinaram o contrato `hash`.
+    function contratoAssinado(bytes32 hash, address comprador_, address vendedor_) external view returns (bool) {
+        Contrato storage c = contratos[chaveContrato(hash, comprador_, vendedor_)];
         return c.assinouComprador && c.assinouVendedor;
     }
 
     /// @notice Quem pode abrir o contrato cifrado (o cofre consulta antes de entregar):
     /// a parte que assinou, ou o supervisor quando as duas partes assinaram.
-    function podeAbrir(bytes32 _hash, address _comprador, address _vendedor, address _c) external view returns (bool) {
-        Contrato storage c = contratos[chaveContrato(_hash, _comprador, _vendedor)];
-        if (_c == address(0)) return false;
-        if (_c == _comprador) return c.assinouComprador;
-        if (_c == _vendedor) return c.assinouVendedor;
-        return _c == supervisor && c.assinouComprador && c.assinouVendedor;
+    function podeAbrir(bytes32 hash, address comprador_, address vendedor_, address carteira)
+        external
+        view
+        returns (bool)
+    {
+        Contrato storage c = contratos[chaveContrato(hash, comprador_, vendedor_)];
+        if (carteira == address(0)) return false;
+        if (carteira == comprador_) return c.assinouComprador;
+        if (carteira == vendedor_) return c.assinouVendedor;
+        return carteira == supervisor && c.assinouComprador && c.assinouVendedor;
     }
 
     // ------------------------------------------------------------ chaves
 
-    function trocarAtestador(address _novo) external {
+    /// @notice Troca a carteira que grava os selos de KYC (só o supervisor).
+    /// @param novo Novo atestador.
+    function trocarAtestador(address novo) external {
         if (msg.sender != supervisor) revert SoSupervisor();
-        if (_novo == address(0)) revert EnderecoZero();
-        atestador = _novo;
-        emit AtestadorTrocado(_novo);
+        if (novo == address(0)) revert EnderecoZero();
+        atestador = novo;
+        emit AtestadorTrocado(novo);
     }
 
-    function trocarSupervisor(address _novo) external {
+    /// @notice Passa a supervisão (preços e atestador) (só o supervisor).
+    /// @param novo Novo supervisor.
+    function trocarSupervisor(address novo) external {
         if (msg.sender != supervisor) revert SoSupervisor();
-        if (_novo == address(0)) revert EnderecoZero();
-        supervisor = _novo;
-        emit SupervisorTrocado(_novo);
+        if (novo == address(0)) revert EnderecoZero();
+        supervisor = novo;
+        emit SupervisorTrocado(novo);
     }
 }

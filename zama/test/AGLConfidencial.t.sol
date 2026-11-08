@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.27;
 
-import { euint64 } from "@fhevm/solidity/lib/FHE.sol";
-import { AGL } from "../../src/AGL.sol";
-import { BaseAGL } from "../../test/BaseAGL.sol";
-import { AGLConfidencial } from "../src/AGLConfidencial.sol";
+import {euint64} from "@fhevm/solidity/lib/FHE.sol";
+import {AGL} from "../../src/AGL.sol";
+import {BaseAGL} from "../../test/BaseAGL.sol";
+import {AGLConfidencial} from "../src/AGLConfidencial.sol";
 
 /// Fork do Ethereum MAINNET com o coprocessador real da Zama (ACL/Executor/KMS).
 contract AGLConfidencialTest is BaseAGL {

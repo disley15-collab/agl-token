@@ -4,8 +4,8 @@ pragma solidity ^0.8.26;
 // Auditoria v3 — ponte × pools independentes por rede.
 //   ORIGEM=bsc DESTINO=base forge test --isolate --match-contract PonteArbitragemAuditoria --match-test test_X -vv
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { PonteTest } from "../Ponte.t.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {PonteTest} from "../Ponte.t.sol";
 
 contract PonteArbitragemAuditoria is PonteTest {
     /// X1 (OK): cada rede tem a SUA escada de 1e30 no mesmo preço inicial. Com o 1º degrau de

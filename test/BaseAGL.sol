@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { Test } from "forge-std/Test.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { IPoolManager } from "v4-core/interfaces/IPoolManager.sol";
-import { PoolKey } from "v4-core/types/PoolKey.sol";
-import { Currency } from "v4-core/types/Currency.sol";
-import { PoolIdLibrary } from "v4-core/types/PoolId.sol";
-import { SwapParams } from "v4-core/types/PoolOperation.sol";
-import { TickMath } from "v4-core/libraries/TickMath.sol";
-import { StateLibrary } from "v4-core/libraries/StateLibrary.sol";
-import { PoolSwapTest } from "v4-core/test/PoolSwapTest.sol";
-import { AGL } from "../src/AGL.sol";
-import { PoolAGL } from "../src/PoolAGL.sol";
-import { ICreateX } from "../src/ICreateX.sol";
+import {Test} from "forge-std/Test.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {Currency} from "v4-core/types/Currency.sol";
+import {PoolIdLibrary} from "v4-core/types/PoolId.sol";
+import {SwapParams} from "v4-core/types/PoolOperation.sol";
+import {TickMath} from "v4-core/libraries/TickMath.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
+import {AGL} from "../src/AGL.sol";
+import {PoolAGL} from "../src/PoolAGL.sol";
+import {ICreateX} from "../src/ICreateX.sol";
 
 /// Base dos testes. Fork MAINNET da rede em REDE (padrão bsc; ver script/redes.tsv):
 /// PoolManager v4, moeda, CreateX reais; carteira de publicação e salts de script/salt-*.json.
@@ -78,7 +78,10 @@ abstract contract BaseAGL is Test {
 
     function _publicarPool() internal returns (PoolAGL) {
         bytes memory init = abi.encodePacked(
-            type(PoolAGL).creationCode, abi.encode(PM, DEPLOYER, MOEDA, DONO, DONO, keccak256(_initToken(_poolPrevista())))
+            type(PoolAGL).creationCode,
+            abi.encode(
+                PM, DEPLOYER, MOEDA, DONO, DONO, keccak256(_initToken(_poolPrevista())), _saltPara(_poolPrevista())
+            )
         );
         vm.prank(DEPLOYER);
         return PoolAGL(ICreateX(CREATEX).deployCreate3(SALT_POOL, init));
@@ -86,7 +89,11 @@ abstract contract BaseAGL is Test {
 
     /// Salt do token protegido pela pool (os 20 primeiros bytes = endereço da pool).
     function _saltToken() internal view returns (bytes32) {
-        return bytes32((uint256(uint160(address(pool))) << 96) | (uint256(SALT_TOKEN) & ((1 << 88) - 1)));
+        return _saltPara(address(pool));
+    }
+
+    function _saltPara(address _pool) internal view returns (bytes32) {
+        return bytes32((uint256(uint160(_pool)) << 96) | (uint256(SALT_TOKEN) & ((1 << 88) - 1)));
     }
 
     function _enderecoToken() internal view returns (address) {
@@ -121,7 +128,7 @@ abstract contract BaseAGL is Test {
         json = _escada(_enderecoToken());
         PoolAGL.Faixa[] memory fx = _faixas();
         vm.prank(DEPLOYER);
-        pool.lancar(_saltToken(), _initToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
+        pool.lancar(_initToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
         t = AGL(Currency.unwrap(pool.token()));
         assertEq(address(t), _enderecoToken(), "endereco do token previsto");
         // EIP-170: a rede recusa contrato acima de 24.576 bytes (o teste local não recusa)

@@ -1,21 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { Script, console2 } from "forge-std/Script.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { IPoolManager } from "v4-core/interfaces/IPoolManager.sol";
-import { PoolKey } from "v4-core/types/PoolKey.sol";
-import { PoolIdLibrary } from "v4-core/types/PoolId.sol";
-import { Currency } from "v4-core/types/Currency.sol";
-import { Hooks } from "v4-core/libraries/Hooks.sol";
-import { TickMath } from "v4-core/libraries/TickMath.sol";
-import { LiquidityAmounts } from "v4-periphery/libraries/LiquidityAmounts.sol";
-import { StateLibrary } from "v4-core/libraries/StateLibrary.sol";
-import { AGL } from "../src/AGL.sol";
-import { PoolAGL } from "../src/PoolAGL.sol";
-import { RegistroAGL } from "../src/RegistroAGL.sol";
-import { EscrowAGL } from "../src/EscrowAGL.sol";
-import { ILayerZeroEndpointV2 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
+import {Script, console2} from "forge-std/Script.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {PoolIdLibrary} from "v4-core/types/PoolId.sol";
+import {Currency} from "v4-core/types/Currency.sol";
+import {Hooks} from "v4-core/libraries/Hooks.sol";
+import {TickMath} from "v4-core/libraries/TickMath.sol";
+import {LiquidityAmounts} from "v4-periphery/libraries/LiquidityAmounts.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {AGL} from "../src/AGL.sol";
+import {PoolAGL} from "../src/PoolAGL.sol";
+import {RegistroAGL} from "../src/RegistroAGL.sol";
+import {EscrowAGL} from "../src/EscrowAGL.sol";
+import {ILayerZeroEndpointV2} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
+import {UlnConfig} from "@layerzerolabs/lz-evm-messagelib-v2/contracts/uln/UlnBase.sol";
+
+interface IUlnConf {
+    function getUlnConfig(address oapp, uint32 eid) external view returns (UlnConfig memory);
+}
 
 interface IDelegates {
     function delegates(address oapp) external view returns (address);
@@ -42,7 +47,11 @@ contract Conferir is Script {
         address dono = 0x979514BddD0346FdD218c49B8242b92C1A6D0ffC;
 
         _c(address(pool).code.length > 0, "pool sem codigo");
-        _c(uint160(address(pool)) & Hooks.ALL_HOOK_MASK == (Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.AFTER_SWAP_FLAG), "bits de hook");
+        _c(
+            uint160(address(pool)) & Hooks.ALL_HOOK_MASK
+                == (Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.AFTER_SWAP_FLAG),
+            "bits de hook"
+        );
         _c(address(pool.poolManager()) == address(pm), "poolManager");
         _c(pool.lancador() == vm.envAddress("DEPLOYER"), "lancador");
         _c(pool.guardiaoToken() == vm.envAddress("DEPLOYER"), "guardiao inicial = publicacao");
@@ -125,6 +134,14 @@ contract Conferir is Script {
                 (, bool recPadrao) = ep.getReceiveLibrary(address(t), e);
                 _c(!recPadrao, "biblioteca de recebimento fixada");
                 _c(t.enforcedOptions(e, 1).length > 0 && t.enforcedOptions(e, 2).length > 0, "gas de entrega fixado");
+                // lição KelpDAO (abr/2026): rota com 1 só verificador é ponto único de falha
+                address envio = ep.getSendLibrary(address(t), e);
+                (address recebe,) = ep.getReceiveLibrary(address(t), e);
+                UlnConfig memory ue = IUlnConf(envio).getUlnConfig(address(t), e);
+                UlnConfig memory ur = IUlnConf(recebe).getUlnConfig(address(t), e);
+                _c(ue.requiredDVNCount >= 2 && ue.requiredDVNCount != type(uint8).max, "envio: 2+ verificadores");
+                _c(ur.requiredDVNCount >= 2 && ur.requiredDVNCount != type(uint8).max, "recebimento: 2+ verificadores");
+                _c(ue.confirmations > 0 && ur.confirmations > 0, "confirmacoes fixadas");
             }
         }
         if (etapa == 3) {

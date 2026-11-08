@@ -7,23 +7,23 @@ pragma solidity ^0.8.26;
 // Sem --isolate o Foundry mantém o transient storage entre as chamadas do teste
 // inteiro e a cota "sobra" de um passo para o outro (verde/vermelho falso).
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { IPoolManager } from "v4-core/interfaces/IPoolManager.sol";
-import { IUnlockCallback } from "v4-core/interfaces/callback/IUnlockCallback.sol";
-import { IHooks } from "v4-core/interfaces/IHooks.sol";
-import { PoolKey } from "v4-core/types/PoolKey.sol";
-import { PoolIdLibrary } from "v4-core/types/PoolId.sol";
-import { Currency } from "v4-core/types/Currency.sol";
-import { BalanceDelta } from "v4-core/types/BalanceDelta.sol";
-import { ModifyLiquidityParams, SwapParams } from "v4-core/types/PoolOperation.sol";
-import { TickMath } from "v4-core/libraries/TickMath.sol";
-import { StateLibrary } from "v4-core/libraries/StateLibrary.sol";
-import { TransientStateLibrary } from "v4-core/libraries/TransientStateLibrary.sol";
-import { PoolSwapTest } from "v4-core/test/PoolSwapTest.sol";
-import { LiquidityAmounts } from "v4-periphery/libraries/LiquidityAmounts.sol";
-import { AGL } from "../../src/AGL.sol";
-import { PoolAGL } from "../../src/PoolAGL.sol";
-import { BaseAGL } from "../BaseAGL.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {IUnlockCallback} from "v4-core/interfaces/callback/IUnlockCallback.sol";
+import {IHooks} from "v4-core/interfaces/IHooks.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {PoolIdLibrary} from "v4-core/types/PoolId.sol";
+import {Currency} from "v4-core/types/Currency.sol";
+import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
+import {ModifyLiquidityParams, SwapParams} from "v4-core/types/PoolOperation.sol";
+import {TickMath} from "v4-core/libraries/TickMath.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {TransientStateLibrary} from "v4-core/libraries/TransientStateLibrary.sol";
+import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
+import {LiquidityAmounts} from "v4-periphery/libraries/LiquidityAmounts.sol";
+import {AGL} from "../../src/AGL.sol";
+import {PoolAGL} from "../../src/PoolAGL.sol";
+import {BaseAGL} from "../BaseAGL.sol";
 
 interface IFiatTokenA {
     function blacklister() external view returns (address);
@@ -94,7 +94,8 @@ contract Operador is IUnlockCallback {
                 (PoolKey memory k, uint160 sp) = abi.decode(a[i].dados, (PoolKey, uint160));
                 pm.initialize(k, sp);
             } else if (tp == ADDLIQ) {
-                (PoolKey memory k, int24 lo, int24 hi, int256 liq) = abi.decode(a[i].dados, (PoolKey, int24, int24, int256));
+                (PoolKey memory k, int24 lo, int24 hi, int256 liq) =
+                    abi.decode(a[i].dados, (PoolKey, int24, int24, int256));
                 pm.modifyLiquidity(k, ModifyLiquidityParams(lo, hi, liq, 0), "");
             } else if (tp == MINT6909) {
                 (address para, uint256 v) = abi.decode(a[i].dados, (address, uint256));
@@ -130,7 +131,7 @@ contract Nascente {
     }
 }
 
-contract SemSaida { }
+contract SemSaida {}
 
 contract TravaAuditoria is BaseAGL {
     using PoolIdLibrary for PoolKey;
@@ -183,7 +184,9 @@ contract TravaAuditoria is BaseAGL {
         (int24 lo, int24 hi) = _faixaFalsa();
         uint160 a = TickMath.getSqrtPriceAtTick(lo);
         uint160 b = TickMath.getSqrtPriceAtTick(hi);
-        return t0 ? LiquidityAmounts.getLiquidityForAmount0(a, b, qtdAgl) : LiquidityAmounts.getLiquidityForAmount1(a, b, qtdAgl);
+        return t0
+            ? LiquidityAmounts.getLiquidityForAmount0(a, b, qtdAgl)
+            : LiquidityAmounts.getLiquidityForAmount1(a, b, qtdAgl);
     }
 
     /// Cria a pool falsa (99%, sem hook) e põe nela AGL COMPRADO NA OFICIAL no mesmo
@@ -229,8 +232,14 @@ contract TravaAuditoria is BaseAGL {
         vm.startPrank(vitima);
         IERC20(MOEDA).approve(address(router), type(uint256).max);
         vm.expectRevert();
-        router.swap(falsa, SwapParams(_zfoCompra(), int256(1e18), _zfoCompra() ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1),
-            PoolSwapTest.TestSettings(false, false), "");
+        router.swap(
+            falsa,
+            SwapParams(
+                _zfoCompra(), int256(1e18), _zfoCompra() ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+            ),
+            PoolSwapTest.TestSettings(false, false),
+            ""
+        );
         vm.stopPrank();
     }
 
@@ -298,7 +307,7 @@ contract TravaAuditoria is BaseAGL {
         uint256 v = t.balanceOf(atacante);
         vm.prank(atacante);
         t.transfer(previsto, v);
-        Nascente n = new Nascente{ salt: salt }();
+        Nascente n = new Nascente{salt: salt}();
         assertEq(address(n), previsto);
         assertFalse(t.permitido(address(n)));
         assertEq(t.balanceOf(address(n)), v, "contrato nao permitido custodia AGL");
@@ -312,8 +321,20 @@ contract TravaAuditoria is BaseAGL {
         if (block.chainid != 8453) return;
         IV2Factory f = IV2Factory(0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6);
         (address a0, address a1) = address(t) < MOEDA ? (address(t), MOEDA) : (MOEDA, address(t));
-        address par = address(uint160(uint256(keccak256(abi.encodePacked(hex"ff", address(f),
-            keccak256(abi.encodePacked(a0, a1)), hex"96e8ac4277198ff8b6f785478aa9a39f403cb768dd02cbee326c3e7da348845f")))));
+        address par = address(
+            uint160(
+                uint256(
+                    keccak256(
+                        abi.encodePacked(
+                            hex"ff",
+                            address(f),
+                            keccak256(abi.encodePacked(a0, a1)),
+                            hex"96e8ac4277198ff8b6f785478aa9a39f403cb768dd02cbee326c3e7da348845f"
+                        )
+                    )
+                )
+            )
+        );
         _comprar(atacante, _unid(100));
         uint256 v = t.balanceOf(atacante);
         vm.prank(atacante);
@@ -361,8 +382,12 @@ contract TravaAuditoria is BaseAGL {
     function test_D1_preco_empurrado_de_graca_abaixo_do_lancamento() public {
         int24 antes = _tick();
         vm.startPrank(atacante);
-        router.swap(pool.chave(), SwapParams(t0, -int256(1e30), t0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1),
-            PoolSwapTest.TestSettings(false, false), "");
+        router.swap(
+            pool.chave(),
+            SwapParams(t0, -int256(1e30), t0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1),
+            PoolSwapTest.TestSettings(false, false),
+            ""
+        );
         vm.stopPrank();
         int24 depois = _tick();
         emit log_named_int("tick antes", antes);

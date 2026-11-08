@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { Test } from "forge-std/Test.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { EscrowAGL, IRegistro } from "../src/EscrowAGL.sol";
-import { RegistroAGL, IPoolAGLLeitura } from "../src/RegistroAGL.sol";
-import { TickMath } from "v4-core/libraries/TickMath.sol";
-import { BaseAGL } from "./BaseAGL.sol";
+import {Test} from "forge-std/Test.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {EscrowAGL, IRegistro} from "../src/EscrowAGL.sol";
+import {RegistroAGL, IPoolAGLLeitura} from "../src/RegistroAGL.sol";
+import {TickMath} from "v4-core/libraries/TickMath.sol";
+import {BaseAGL} from "./BaseAGL.sol";
 
 interface IFiatToken {
     function blacklister() external view returns (address);
     function blacklist(address) external;
 }
 
-import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 /// Moeda que cobra 1% em toda transferência.
 contract MoedaComTaxa is ERC20("Taxada", "TX") {
@@ -45,7 +45,10 @@ contract EscrowBase is BaseAGL {
         super.setUp();
         _lancar();
         reg = new RegistroAGL(
-            IPoolAGLLeitura(address(pool)), taxas, sup, atest,
+            IPoolAGLLeitura(address(pool)),
+            taxas,
+            sup,
+            atest,
             TickMath.getSqrtPriceAtTick(int24(vm.parseJsonInt(json, ".tickInicial")))
         );
         address[] memory m = new address[](1);
@@ -70,11 +73,11 @@ contract EscrowBase is BaseAGL {
 
     uint256 TC; // taxa do comprador (1%)
 
-    function _criar(uint96 bpsEmb) internal returns (uint256 id) {
+    function _criar(uint16 bpsEmb) internal returns (uint256 id) {
         return _criarModo(bpsEmb == 0 ? EscrowAGL.Modo.Simples : EscrowAGL.Modo.Rastreado, bpsEmb);
     }
 
-    function _criarModo(EscrowAGL.Modo modo, uint96 bpsEmb) internal returns (uint256 id) {
+    function _criarModo(EscrowAGL.Modo modo, uint16 bpsEmb) internal returns (uint256 id) {
         uint256 total = esc.totalADepositar(V);
         TC = total - V;
         deal(MOEDA, comp, total);
@@ -107,14 +110,23 @@ contract EscrowBase is BaseAGL {
     }
 
     function _ate(uint256 id, uint8 passo) internal {
-        if (passo >= 1) { vm.prank(vend); esc.aceitar(id); }
+        if (passo >= 1) {
+            vm.prank(vend);
+            esc.aceitar(id);
+        }
         if (passo >= 2) {
             if (esc.ordem(id).modo == EscrowAGL.Modo.Rastreado) _comprovar(id);
             vm.prank(vend);
             esc.informarEmbarque(id, keccak256("BL"));
         }
-        if (passo >= 3) { vm.prank(comp); esc.confirmar(id); }
-        if (passo >= 4) { vm.prank(vend); esc.informarChegada(id, keccak256("chegada")); }
+        if (passo >= 3) {
+            vm.prank(comp);
+            esc.confirmar(id);
+        }
+        if (passo >= 4) {
+            vm.prank(vend);
+            esc.informarChegada(id, keccak256("chegada"));
+        }
     }
 
     function _sacarTudo(address q) internal returns (uint256 v) {
@@ -127,9 +139,11 @@ contract EscrowBase is BaseAGL {
     }
 
     function _conferirCaixa() internal view {
-        assertEq(IERC20(MOEDA).balanceOf(address(esc)),
+        assertEq(
+            IERC20(MOEDA).balanceOf(address(esc)),
             esc.travado(MOEDA) + esc.saldo(MOEDA, comp) + esc.saldo(MOEDA, vend) + esc.saldo(MOEDA, taxas),
-            "caixa = travado + saldos");
+            "caixa = travado + saldos"
+        );
     }
 }
 
@@ -298,7 +312,11 @@ contract EscrowTest is EscrowBase {
 
     function test_feliz_30_70_vendedor_98_taxa_2() public {
         uint256 id = _criar(3000);
-        assertEq(IERC20(MOEDA).balanceOf(address(esc)), V + TC, "sem deposito nao ha ordem: valor + taxa do comprador travados");
+        assertEq(
+            IERC20(MOEDA).balanceOf(address(esc)),
+            V + TC,
+            "sem deposito nao ha ordem: valor + taxa do comprador travados"
+        );
         _ate(id, 3);
         assertEq(esc.saldo(MOEDA, vend), V * 30 / 100 * 98 / 100, "30% no embarque, menos 2%");
         vm.prank(vend);
@@ -370,7 +388,11 @@ contract EscrowTest is EscrowBase {
         _ate(id, 3);
         vm.warp(block.timestamp + 90 days + 1);
         esc.reembolsarPorPrazo(id);
-        assertEq(esc.saldo(MOEDA, comp), V * 70 / 100 + TC - TC * 3000 / 10_000, "os 70% nao liberados voltam com a taxa proporcional");
+        assertEq(
+            esc.saldo(MOEDA, comp),
+            V * 70 / 100 + TC - TC * 3000 / 10_000,
+            "os 70% nao liberados voltam com a taxa proporcional"
+        );
         _conferirCaixa();
     }
 
@@ -473,7 +495,9 @@ contract EscrowTest is EscrowBase {
         vm.prank(sup);
         esc.decidir(id, 4000);
         assertEq(esc.saldo(MOEDA, vend), V * 40 / 100 * 98 / 100);
-        assertEq(esc.saldo(MOEDA, comp), V * 60 / 100 + V / 100 + TC - TC * 4000 / 10_000, "60% + caucao + taxa proporcional");
+        assertEq(
+            esc.saldo(MOEDA, comp), V * 60 / 100 + V / 100 + TC - TC * 4000 / 10_000, "60% + caucao + taxa proporcional"
+        );
         _conferirCaixa();
     }
 
@@ -555,15 +579,19 @@ contract Ator is Test {
         return ids.length == 0 ? 0 : ids[s % ids.length];
     }
 
-    function criar(uint256 valor, uint96 bps) external {
+    function criar(uint256 valor, uint16 bps) external {
         valor = bound(valor, 1e6, 1e24);
-        bps = uint96(bound(bps, 0, 10_000));
+        bps = uint16(bound(bps, 0, 10_000));
         uint256 total = esc.totalADepositar(valor);
         deal(moeda, comp, total);
         vm.startPrank(comp);
         IERC20(moeda).approve(address(esc), total);
         EscrowAGL.Prazos memory p = EscrowAGL.Prazos(
-            uint64(block.timestamp + 3 days), uint64(block.timestamp + 30 days), uint64(block.timestamp + 90 days), 3 days, 5 days
+            uint64(block.timestamp + 3 days),
+            uint64(block.timestamp + 30 days),
+            uint64(block.timestamp + 90 days),
+            3 days,
+            5 days
         );
         vm.stopPrank();
         bytes32 h = keccak256(abi.encode("ator", ++n));
@@ -582,24 +610,24 @@ contract Ator is Test {
         acao = acao % 9;
         address quem = acao < 3 ? vend : (acao < 6 ? comp : sup);
         vm.startPrank(quem);
-        if (acao == 0) try esc.aceitar(id) { } catch { }
+        if (acao == 0) try esc.aceitar(id) {} catch {}
         if (acao == 1) {
-            try esc.atualizar(id, EscrowAGL.Tipo.Imagem, keccak256("f"), "f") { } catch { }
-            try esc.atualizar(id, EscrowAGL.Tipo.DocumentoCarga, keccak256("d"), "d") { } catch { }
-            try esc.atualizar(id, EscrowAGL.Tipo.TramiteLegal, keccak256("t"), "t") { } catch { }
-            try esc.informarEmbarque(id, keccak256("bl")) { } catch { }
+            try esc.atualizar(id, EscrowAGL.Tipo.Imagem, keccak256("f"), "f") {} catch {}
+            try esc.atualizar(id, EscrowAGL.Tipo.DocumentoCarga, keccak256("d"), "d") {} catch {}
+            try esc.atualizar(id, EscrowAGL.Tipo.TramiteLegal, keccak256("t"), "t") {} catch {}
+            try esc.informarEmbarque(id, keccak256("bl")) {} catch {}
         }
-        if (acao == 2) try esc.informarChegada(id, keccak256("ch")) { } catch { }
-        if (acao == 3) try esc.confirmar(id) { } catch { }
+        if (acao == 2) try esc.informarChegada(id, keccak256("ch")) {} catch {}
+        if (acao == 3) try esc.confirmar(id) {} catch {}
         if (acao == 4 || acao == 5) {
             EscrowAGL.Ordem memory o = esc.ordem(id);
             deal(moeda, quem, IERC20(moeda).balanceOf(quem) + o.valor / 100);
             IERC20(moeda).approve(address(esc), o.valor / 100);
-            try esc.contestar(id) { } catch { }
+            try esc.contestar(id) {} catch {}
         }
-        if (acao == 6) try esc.decidir(id, s % 10_001) { } catch { }
-        if (acao == 7) try esc.reembolsarPorPrazo(id) { } catch { }
-        if (acao == 8) try esc.reembolsarPorOmissao(id) { } catch { }
+        if (acao == 6) try esc.decidir(id, s % 10_001) {} catch {}
+        if (acao == 7) try esc.reembolsarPorPrazo(id) {} catch {}
+        if (acao == 8) try esc.reembolsarPorOmissao(id) {} catch {}
         vm.stopPrank();
     }
 
@@ -635,7 +663,9 @@ contract EscrowInvariantes is EscrowBase {
         assertEq(esc.saldo(MOEDA, sup), 0);
         uint256 n = esc.totalOrdens();
         uint256 liberado;
-        for (uint256 i = 1; i <= n; i++) liberado += esc.ordem(i).liberado;
+        for (uint256 i = 1; i <= n; i++) {
+            liberado += esc.ordem(i).liberado;
+        }
         assertLe(esc.saldo(MOEDA, taxas), liberado * 3 / 100 + 2 * n);
     }
 

@@ -1,34 +1,46 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { IPoolManager } from "v4-core/interfaces/IPoolManager.sol";
-import { IHooks } from "v4-core/interfaces/IHooks.sol";
-import { PoolKey } from "v4-core/types/PoolKey.sol";
-import { Currency } from "v4-core/types/Currency.sol";
-import { ModifyLiquidityParams, SwapParams } from "v4-core/types/PoolOperation.sol";
-import { TickMath } from "v4-core/libraries/TickMath.sol";
-import { PoolSwapTest } from "v4-core/test/PoolSwapTest.sol";
-import { PoolModifyLiquidityTest } from "v4-core/test/PoolModifyLiquidityTest.sol";
-import { AGL } from "../src/AGL.sol";
-import { PoolAGL } from "../src/PoolAGL.sol";
-import { ICreateX } from "../src/ICreateX.sol";
-import { BaseAGL } from "./BaseAGL.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {IHooks} from "v4-core/interfaces/IHooks.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {Currency} from "v4-core/types/Currency.sol";
+import {ModifyLiquidityParams, SwapParams} from "v4-core/types/PoolOperation.sol";
+import {TickMath} from "v4-core/libraries/TickMath.sol";
+import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
+import {PoolModifyLiquidityTest} from "v4-core/test/PoolModifyLiquidityTest.sol";
+import {AGL} from "../src/AGL.sol";
+import {PoolAGL} from "../src/PoolAGL.sol";
+import {ICreateX} from "../src/ICreateX.sol";
+import {BaseAGL} from "./BaseAGL.sol";
 
 /// Faz vários swaps numa transação só e lê a cota no fim (transient storage).
 contract Sequencia {
-    receive() external payable { } // o roteador de teste devolve saldo nativo que já exista no endereço dele
-    function compraEVenda(PoolSwapTest r, PoolAGL p, AGL t, address moeda, uint256 v) external returns (int256, int256) {
+    receive() external payable {} // o roteador de teste devolve saldo nativo que já exista no endereço dele
+
+    function compraEVenda(PoolSwapTest r, PoolAGL p, AGL t, address moeda, uint256 v)
+        external
+        returns (int256, int256)
+    {
         bool t0 = p.tokenEhMoeda0();
         IERC20(moeda).approve(address(r), type(uint256).max);
         t.approve(address(r), type(uint256).max);
         uint256 antes = t.balanceOf(address(this));
-        r.swap(p.chave(), SwapParams(!t0, -int256(v), t0 ? TickMath.MAX_SQRT_PRICE - 1 : TickMath.MIN_SQRT_PRICE + 1),
-            PoolSwapTest.TestSettings(false, false), "");
+        r.swap(
+            p.chave(),
+            SwapParams(!t0, -int256(v), t0 ? TickMath.MAX_SQRT_PRICE - 1 : TickMath.MIN_SQRT_PRICE + 1),
+            PoolSwapTest.TestSettings(false, false),
+            ""
+        );
         int256 depoisCompra = p.cota();
         uint256 q = t.balanceOf(address(this)) - antes;
-        r.swap(p.chave(), SwapParams(t0, -int256(q), t0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1),
-            PoolSwapTest.TestSettings(false, false), "");
+        r.swap(
+            p.chave(),
+            SwapParams(t0, -int256(q), t0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1),
+            PoolSwapTest.TestSettings(false, false),
+            ""
+        );
         return (depoisCompra, p.cota());
     }
 }
@@ -65,7 +77,7 @@ contract RespostaEstranha {
 
 /// Simula um contrato qualquer (executor de agregador, carteira inteligente...).
 contract PoolQualquer {
-    function receber() external { }
+    function receber() external {}
 }
 
 contract AGLTest is BaseAGL {
@@ -86,7 +98,9 @@ contract AGLTest is BaseAGL {
         assertEq(t.symbol(), "AGL");
         PoolAGL.Faixa[] memory fx = pool.todasAsFaixas();
         assertEq(fx.length, 20);
-        for (uint256 i; i < fx.length; i++) assertGt(_liquidez(fx[i]), 0);
+        for (uint256 i; i < fx.length; i++) {
+            assertGt(_liquidez(fx[i]), 0);
+        }
         assertEq(_tick(), int24(vm.parseJsonInt(json, ".tickInicial")));
         assertEq(Currency.unwrap(pool.moeda()), MOEDA, "pareada com USDC");
     }
@@ -105,12 +119,12 @@ contract AGLTest is BaseAGL {
         int24 ti = int24(vm.parseJsonInt(json, ".tickInicial"));
         vm.prank(atacante);
         vm.expectRevert(PoolAGL.SoLancador.selector);
-        pool.lancar(_saltToken(), _initToken(), ti, fx);
+        pool.lancar(_initToken(), ti, fx);
         vm.prank(DEPLOYER);
-        pool.lancar(_saltToken(), _initToken(), ti, fx);
+        pool.lancar(_initToken(), ti, fx);
         vm.prank(DEPLOYER);
         vm.expectRevert(PoolAGL.JaLancado.selector);
-        pool.lancar(_saltToken(), _initToken(), ti, fx);
+        pool.lancar(_initToken(), ti, fx);
     }
 
     function test_degrau_abaixo_do_preco_recusado() public {
@@ -121,7 +135,7 @@ contract AGLTest is BaseAGL {
         bool t0 = _enderecoToken() < MOEDA;
         vm.prank(DEPLOYER);
         vm.expectRevert(abi.encodeWithSelector(PoolAGL.FaixaFora.selector, uint256(0)));
-        pool.lancar(_saltToken(), _initToken(), t0 ? ti + 10 : ti - 10, fx);
+        pool.lancar(_initToken(), t0 ? ti + 10 : ti - 10, fx);
     }
 
     function test_ultimo_degrau_recebe_a_sobra() public {
@@ -130,21 +144,25 @@ contract AGLTest is BaseAGL {
         PoolAGL.Faixa[] memory fx = _faixas();
         fx[fx.length - 1].quantidade = 1;
         vm.prank(DEPLOYER);
-        pool.lancar(_saltToken(), _initToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
+        pool.lancar(_initToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
         PoolAGL.Faixa[] memory g = pool.todasAsFaixas();
         uint256 soma;
-        for (uint256 i; i < g.length; i++) soma += g[i].quantidade;
+        for (uint256 i; i < g.length; i++) {
+            soma += g[i].quantidade;
+        }
         assertEq(soma, SUPPLY);
     }
 
     function test_S3_salt_do_token_precisa_ser_protegido() public {
-        pool = _publicarPool();
-        json = _escada(_enderecoToken());
-        PoolAGL.Faixa[] memory fx = _faixas();
-        bytes32 semProtecao = bytes32(uint256(_saltToken()) & ((1 << 96) - 1)); // 20 bytes zerados
+        address prevista = _poolPrevista();
+        bytes32 semProtecao = bytes32(uint256(_saltPara(prevista)) & ((1 << 96) - 1)); // 20 bytes zerados
+        bytes memory init = abi.encodePacked(
+            type(PoolAGL).creationCode,
+            abi.encode(PM, DEPLOYER, MOEDA, DONO, DONO, keccak256(_initToken(prevista)), semProtecao)
+        );
         vm.prank(DEPLOYER);
-        vm.expectRevert(PoolAGL.SaltSemProtecao.selector);
-        pool.lancar(semProtecao, _initToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
+        vm.expectRevert(); // a CreateX repassa a falha do construtor (SaltSemProtecao)
+        ICreateX(CREATEX).deployCreate3(SALT_POOL, init);
     }
 
     /// A pool só publica o código EXATO do AGL (hash gravado na criação dela).
@@ -152,15 +170,16 @@ contract AGLTest is BaseAGL {
         pool = _publicarPool();
         json = _escada(_enderecoToken());
         PoolAGL.Faixa[] memory fx = _faixas();
-        bytes memory falso = abi.encodePacked(type(AGL).creationCode, abi.encode(address(pool), atacante, ENDPOINT_LZ, atacante));
+        bytes memory falso =
+            abi.encodePacked(type(AGL).creationCode, abi.encode(address(pool), atacante, ENDPOINT_LZ, atacante));
         vm.prank(DEPLOYER);
         vm.expectRevert(PoolAGL.CodigoDoTokenErrado.selector);
-        pool.lancar(_saltToken(), falso, int24(vm.parseJsonInt(json, ".tickInicial")), fx);
+        pool.lancar(falso, int24(vm.parseJsonInt(json, ".tickInicial")), fx);
     }
 
     function test_endereco_de_hook_errado_recusado() public {
         vm.expectRevert(PoolAGL.EnderecoDeHookErrado.selector);
-        new PoolAGL(PM, DEPLOYER, MOEDA, DONO, DONO, bytes32(0));
+        new PoolAGL(PM, DEPLOYER, MOEDA, DONO, DONO, bytes32(0), bytes32(0));
     }
 
     function test_atacante_nao_toma_endereco_do_token() public {
@@ -177,7 +196,7 @@ contract AGLTest is BaseAGL {
         json = _escada(_enderecoToken());
         PoolAGL.Faixa[] memory fx = _faixas();
         vm.prank(DEPLOYER);
-        pool.lancar(_saltToken(), _initToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
+        pool.lancar(_initToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
         t = AGL(Currency.unwrap(pool.token()));
     }
 

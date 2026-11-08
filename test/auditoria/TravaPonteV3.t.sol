@@ -6,23 +6,23 @@ pragma solidity ^0.8.26;
 //   REDE=base      forge test --isolate --threads 1 --match-contract AuditoriaV3 -vv
 //   REDE=avalanche forge test --isolate --threads 1 --match-contract AuditoriaV3 -vv   (inclui LFJ real)
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { TimelockController } from "@openzeppelin/contracts/governance/TimelockController.sol";
-import { IPoolManager } from "v4-core/interfaces/IPoolManager.sol";
-import { IUnlockCallback } from "v4-core/interfaces/callback/IUnlockCallback.sol";
-import { Currency } from "v4-core/types/Currency.sol";
-import { SwapParams } from "v4-core/types/PoolOperation.sol";
-import { TickMath } from "v4-core/libraries/TickMath.sol";
-import { TransientStateLibrary } from "v4-core/libraries/TransientStateLibrary.sol";
-import { Origin } from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
-import { SendParam, MessagingFee } from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
-import { EnforcedOptionParam } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppOptionsType3.sol";
-import { OFTMsgCodec } from "@layerzerolabs/oft-evm/contracts/libs/OFTMsgCodec.sol";
-import { AGL } from "../../src/AGL.sol";
-import { Publicar } from "../../script/Publicar.s.sol";
-import { UlnConfig } from "@layerzerolabs/lz-evm-messagelib-v2/contracts/uln/UlnBase.sol";
-import { PoolAGL } from "../../src/PoolAGL.sol";
-import { BaseAGL } from "../BaseAGL.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {IUnlockCallback} from "v4-core/interfaces/callback/IUnlockCallback.sol";
+import {Currency} from "v4-core/types/Currency.sol";
+import {SwapParams} from "v4-core/types/PoolOperation.sol";
+import {TickMath} from "v4-core/libraries/TickMath.sol";
+import {TransientStateLibrary} from "v4-core/libraries/TransientStateLibrary.sol";
+import {Origin} from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
+import {SendParam, MessagingFee} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
+import {EnforcedOptionParam} from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppOptionsType3.sol";
+import {OFTMsgCodec} from "@layerzerolabs/oft-evm/contracts/libs/OFTMsgCodec.sol";
+import {AGL} from "../../src/AGL.sol";
+import {Publicar} from "../../script/Publicar.s.sol";
+import {UlnConfig} from "@layerzerolabs/lz-evm-messagelib-v2/contracts/uln/UlnBase.sol";
+import {PoolAGL} from "../../src/PoolAGL.sol";
+import {BaseAGL} from "../BaseAGL.sol";
 
 interface IEndpointV2 {
     function verify(Origin calldata _origin, address _receiver, bytes32 _payloadHash) external;
@@ -226,7 +226,14 @@ contract AuditoriaV3 is BaseAGL, IUnlockCallback {
         donos[0] = vitima;
         bytes memory ini = abi.encodeWithSignature(
             "setup(address[],uint256,address,bytes,address,address,uint256,address)",
-            donos, 1, address(0), "", handler, address(0), 0, address(0)
+            donos,
+            1,
+            address(0),
+            "",
+            handler,
+            address(0),
+            0,
+            address(0)
         );
         return ISafeFactory(fab).createProxyWithNonce(sing, ini, 7);
     }
@@ -294,7 +301,11 @@ contract AuditoriaV3 is BaseAGL, IUnlockCallback {
         require(msg.sender == address(PM));
         bytes32 guid = abi.decode(_d, (bytes32));
         bool t0 = pool.tokenEhMoeda0();
-        PM.swap(pool.chave(), SwapParams(t0, -int256(vendaP1), t0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1), "");
+        PM.swap(
+            pool.chave(),
+            SwapParams(t0, -int256(vendaP1), t0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1),
+            ""
+        );
         PM.sync(pool.token());
         IEndpointV2(EP).lzReceive(origemP1, address(t), guid, msgP1, ""); // cria o AGL NO PoolManager
         PM.settle();
@@ -312,7 +323,7 @@ contract AuditoriaV3 is BaseAGL, IUnlockCallback {
         Origin memory o = Origin(EID_BSC, bytes32(uint256(uint160(address(t)))), 1);
         bytes32 guid = keccak256("guid-p2");
         _verificar(o, guid, m);
-        (bool ok,) = EP.call{ gas: 150_000 }(abi.encodeCall(IEndpointV2.lzReceive, (o, address(t), guid, m, bytes(""))));
+        (bool ok,) = EP.call{gas: 150_000}(abi.encodeCall(IEndpointV2.lzReceive, (o, address(t), guid, m, bytes(""))));
         assertFalse(ok, "com 150k a entrega falha");
         uint256 g = gasleft();
         IEndpointV2(EP).lzReceive(o, address(t), guid, m, "");
@@ -330,7 +341,7 @@ contract AuditoriaV3 is BaseAGL, IUnlockCallback {
         bytes32 guid = keccak256("guid-p2b");
         _verificar(o, guid, m);
         uint256 g = gasleft();
-        (bool ok,) = EP.call{ gas: 150_000 }(abi.encodeCall(IEndpointV2.lzReceive, (o, address(t), guid, m, bytes(""))));
+        (bool ok,) = EP.call{gas: 150_000}(abi.encodeCall(IEndpointV2.lzReceive, (o, address(t), guid, m, bytes(""))));
         emit log_named_uint("gas usado (endpoint, 150k)", g - gasleft());
         emit log_named_uint("entregou com 150k (1=sim)", ok ? 1 : 0);
         assertEq(t.balanceOf(safe), ok ? 1000 * 1e9 : 0);
@@ -365,7 +376,7 @@ contract AuditoriaV3 is BaseAGL, IUnlockCallback {
         MessagingFee memory taxa = t.quoteSend(sp, false);
         vm.deal(viajanteP4, taxa.nativeFee);
         vm.prank(viajanteP4);
-        t.send{ value: taxa.nativeFee }(sp, taxa, viajanteP4);
+        t.send{value: taxa.nativeFee}(sp, taxa, viajanteP4);
         assertEq(t.balanceOf(viajanteP4), a - 5e9, "so 5 AGL queimados; a poeira ficou com o dono");
         // acima de uint64 em AGL inteiro: reverte (não trunca)
         deal(address(t), viajanteP4, uint256(type(uint64).max) * 1e9 + 2e9);
@@ -378,7 +389,9 @@ contract AuditoriaV3 is BaseAGL, IUnlockCallback {
 
     function _opcoesGas() internal {
         EnforcedOptionParam[] memory op = new EnforcedOptionParam[](1);
-        op[0] = EnforcedOptionParam(EID_BSC, 1, abi.encodePacked(uint16(3), uint8(1), uint16(17), uint8(1), uint128(150_000)));
+        op[0] = EnforcedOptionParam(
+            EID_BSC, 1, abi.encodePacked(uint16(3), uint8(1), uint16(17), uint8(1), uint128(150_000))
+        );
         vm.prank(DEPLOYER);
         t.setEnforcedOptions(op);
     }
@@ -442,7 +455,8 @@ contract AuditoriaV3 is BaseAGL, IUnlockCallback {
         assertFalse(tl.hasRole(tl.PROPOSER_ROLE(), DEPLOYER));
         // DONO propõe: par da BSC = contrato do atacante
         address falso = makeAddr("parFalso");
-        bytes memory dados = abi.encodeWithSignature("setPeer(uint32,bytes32)", EID_BSC, bytes32(uint256(uint160(falso))));
+        bytes memory dados =
+            abi.encodeWithSignature("setPeer(uint32,bytes32)", EID_BSC, bytes32(uint256(uint160(falso))));
         vm.prank(DONO);
         tl.schedule(address(t), 0, dados, bytes32(0), bytes32(0), 7 days);
         vm.expectRevert();
@@ -490,5 +504,5 @@ contract PoolDoAgl {
 }
 
 contract PoolQualquerV3 {
-    function nada() external { }
+    function nada() external {}
 }

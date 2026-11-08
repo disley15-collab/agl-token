@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { Test } from "forge-std/Test.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { IPoolManager } from "v4-core/interfaces/IPoolManager.sol";
-import { PoolKey } from "v4-core/types/PoolKey.sol";
-import { PoolIdLibrary } from "v4-core/types/PoolId.sol";
-import { SwapParams } from "v4-core/types/PoolOperation.sol";
-import { TickMath } from "v4-core/libraries/TickMath.sol";
-import { StateLibrary } from "v4-core/libraries/StateLibrary.sol";
-import { PoolSwapTest } from "v4-core/test/PoolSwapTest.sol";
-import { AGL } from "../src/AGL.sol";
-import { PoolAGL } from "../src/PoolAGL.sol";
-import { BaseAGL } from "./BaseAGL.sol";
+import {Test} from "forge-std/Test.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {PoolKey} from "v4-core/types/PoolKey.sol";
+import {PoolIdLibrary} from "v4-core/types/PoolId.sol";
+import {SwapParams} from "v4-core/types/PoolOperation.sol";
+import {TickMath} from "v4-core/libraries/TickMath.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
+import {AGL} from "../src/AGL.sol";
+import {PoolAGL} from "../src/PoolAGL.sol";
+import {BaseAGL} from "./BaseAGL.sol";
 
 /// Ações aleatórias: compra, venda, coleta de taxas.
 contract Agente is Test {
@@ -81,7 +81,9 @@ contract InvariantesTest is BaseAGL {
         super.setUp();
         _lancar();
         PoolAGL.Faixa[] memory fx = pool.todasAsFaixas();
-        for (uint256 i; i < fx.length; i++) liq0.push(_liquidez(fx[i]));
+        for (uint256 i; i < fx.length; i++) {
+            liq0.push(_liquidez(fx[i]));
+        }
         supply0 = t.totalSupply();
         agente = new Agente(t, pool, router, MOEDA, 10 ** casasMoeda);
         targetContract(address(agente));
@@ -92,7 +94,9 @@ contract InvariantesTest is BaseAGL {
     function invariant_liquidez_nunca_diminui() public view {
         PoolAGL.Faixa[] memory fx = pool.todasAsFaixas();
         assertEq(fx.length, liq0.length, "nenhum degrau novo");
-        for (uint256 i; i < fx.length; i++) assertGe(_liquidez(fx[i]), liq0[i]);
+        for (uint256 i; i < fx.length; i++) {
+            assertGe(_liquidez(fx[i]), liq0[i]);
+        }
     }
 
     /// O supply não muda.

@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { IPoolManager } from "v4-core/interfaces/IPoolManager.sol";
-import { Currency } from "v4-core/types/Currency.sol";
-import { PoolSwapTest } from "v4-core/test/PoolSwapTest.sol";
-import { Origin } from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
-import { SendParam, MessagingFee } from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
-import { OFTMsgCodec } from "@layerzerolabs/oft-evm/contracts/libs/OFTMsgCodec.sol";
-import { EnforcedOptionParam } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppOptionsType3.sol";
-import { AGL } from "../src/AGL.sol";
-import { PoolAGL } from "../src/PoolAGL.sol";
-import { BaseAGL } from "./BaseAGL.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {Currency} from "v4-core/types/Currency.sol";
+import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
+import {Origin} from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
+import {SendParam, MessagingFee} from "@layerzerolabs/oft-evm/contracts/interfaces/IOFT.sol";
+import {OFTMsgCodec} from "@layerzerolabs/oft-evm/contracts/libs/OFTMsgCodec.sol";
+import {EnforcedOptionParam} from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppOptionsType3.sol";
+import {AGL} from "../src/AGL.sol";
+import {PoolAGL} from "../src/PoolAGL.sol";
+import {BaseAGL} from "./BaseAGL.sol";
 
 interface ILzEndpointConfig {
     function setSendLibrary(address oapp, uint32 eid, address lib) external;
@@ -71,9 +71,13 @@ contract PonteTest is BaseAGL {
 
     function _subir(string memory _rede) internal returns (Rede memory r) {
         vm.setEnv("REDE", _rede);
-        if (keccak256(bytes(_rede)) == keccak256("optimism")) vm.setEnv("RPC", "https://mainnet.optimism.io");
-        else if (keccak256(bytes(_rede)) == keccak256("avalanche")) vm.setEnv("RPC", "https://api.avax.network/ext/bc/C/rpc");
-        else vm.setEnv("RPC", "");
+        if (keccak256(bytes(_rede)) == keccak256("optimism")) {
+            vm.setEnv("RPC", "https://mainnet.optimism.io");
+        } else if (keccak256(bytes(_rede)) == keccak256("avalanche")) {
+            vm.setEnv("RPC", "https://api.avax.network/ext/bc/C/rpc");
+        } else {
+            vm.setEnv("RPC", "");
+        }
         super.setUp();
         _lancar();
         r = Rede(vm.activeFork(), _eid(block.chainid), t, pool, router, MOEDA, casasMoeda);
@@ -104,7 +108,7 @@ contract PonteTest is BaseAGL {
         MessagingFee memory taxa = t.quoteSend(sp, false);
         vm.deal(viajante, taxa.nativeFee);
         vm.prank(viajante);
-        t.send{ value: taxa.nativeFee }(sp, taxa, viajante);
+        t.send{value: taxa.nativeFee}(sp, taxa, viajante);
         (m,) = OFTMsgCodec.encode(bytes32(uint256(uint160(_para))), uint64(_valor / 1e9), "");
         taxaNativa = taxa.nativeFee;
     }
@@ -112,7 +116,14 @@ contract PonteTest is BaseAGL {
     function _entregar(bytes memory _m, uint64 _nonce) internal {
         _usar(d);
         vm.prank(EP);
-        d.t.lzReceive(Origin(o.eid, bytes32(uint256(uint160(address(o.t)))), _nonce), bytes32(uint256(_nonce)), _m, address(0), "");
+        d.t
+            .lzReceive(
+                Origin(o.eid, bytes32(uint256(uint160(address(o.t)))), _nonce),
+                bytes32(uint256(_nonce)),
+                _m,
+                address(0),
+                ""
+            );
     }
 
     // ---------------------------------------------------------------------------- testes
@@ -155,12 +166,15 @@ contract PonteTest is BaseAGL {
         MessagingFee memory taxa = d.t.quoteSend(sp, false);
         vm.deal(viajante, taxa.nativeFee);
         vm.prank(viajante);
-        d.t.send{ value: taxa.nativeFee }(sp, taxa, viajante);
+        d.t.send{value: taxa.nativeFee}(sp, taxa, viajante);
         assertEq(d.t.totalSupply(), 1e30, "destino voltou ao original");
         _usar(o);
         (bytes memory m2,) = OFTMsgCodec.encode(bytes32(uint256(uint160(viajante))), uint64(v / 1e9), "");
         vm.prank(EP);
-        o.t.lzReceive(Origin(d.eid, bytes32(uint256(uint160(address(d.t)))), 1), bytes32(uint256(9)), m2, address(0), "");
+        o.t
+            .lzReceive(
+                Origin(d.eid, bytes32(uint256(uint160(address(d.t)))), 1), bytes32(uint256(9)), m2, address(0), ""
+            );
         assertEq(o.t.totalSupply(), 1e30, "origem voltou ao original");
     }
 

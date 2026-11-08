@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { Script, console2 } from "forge-std/Script.sol";
-import { ILayerZeroEndpointV2 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
-import { SetConfigParam } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/IMessageLibManager.sol";
-import { UlnConfig } from "@layerzerolabs/lz-evm-messagelib-v2/contracts/uln/UlnBase.sol";
-import { ExecutorConfig } from "@layerzerolabs/lz-evm-messagelib-v2/contracts/SendLibBase.sol";
-import { EnforcedOptionParam } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppOptionsType3.sol";
-import { IPoolManager } from "v4-core/interfaces/IPoolManager.sol";
-import { Currency } from "v4-core/types/Currency.sol";
-import { TickMath } from "v4-core/libraries/TickMath.sol";
-import { PoolAGL } from "../src/PoolAGL.sol";
-import { AGL } from "../src/AGL.sol";
-import { RegistroAGL, IPoolAGLLeitura } from "../src/RegistroAGL.sol";
-import { EscrowAGL, IRegistro } from "../src/EscrowAGL.sol";
-import { ICreateX } from "../src/ICreateX.sol";
+import {Script, console2} from "forge-std/Script.sol";
+import {ILayerZeroEndpointV2} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
+import {SetConfigParam} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/IMessageLibManager.sol";
+import {UlnConfig} from "@layerzerolabs/lz-evm-messagelib-v2/contracts/uln/UlnBase.sol";
+import {ExecutorConfig} from "@layerzerolabs/lz-evm-messagelib-v2/contracts/SendLibBase.sol";
+import {EnforcedOptionParam} from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppOptionsType3.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {Currency} from "v4-core/types/Currency.sol";
+import {TickMath} from "v4-core/libraries/TickMath.sol";
+import {PoolAGL} from "../src/PoolAGL.sol";
+import {AGL} from "../src/AGL.sol";
+import {RegistroAGL, IPoolAGLLeitura} from "../src/RegistroAGL.sol";
+import {EscrowAGL, IRegistro} from "../src/EscrowAGL.sol";
+import {ICreateX} from "../src/ICreateX.sol";
 
 interface IUlnLeitura {
     function getUlnConfig(address oapp, uint32 eid) external view returns (UlnConfig memory);
@@ -59,13 +59,22 @@ contract Publicar is Script {
         // 1. pool/hook
         address pPool = _endereco(eu, vm.envBytes32("SALT_POOL"));
         if (pPool.code.length == 0) {
-            ICreateX(CREATEX).deployCreate3(
-                vm.envBytes32("SALT_POOL"),
-                abi.encodePacked(
-                    type(PoolAGL).creationCode,
-                    abi.encode(IPoolManager(pm), eu, moeda, DONO, eu, keccak256(_initToken(pPool, eu)))
-                )
-            );
+            ICreateX(CREATEX)
+                .deployCreate3(
+                    vm.envBytes32("SALT_POOL"),
+                    abi.encodePacked(
+                        type(PoolAGL).creationCode,
+                        abi.encode(
+                            IPoolManager(pm),
+                            eu,
+                            moeda,
+                            DONO,
+                            eu,
+                            keccak256(_initToken(pPool, eu)),
+                            vm.envBytes32("SALT_TOKEN")
+                        )
+                    )
+                );
         }
         PoolAGL pool = PoolAGL(pPool);
         // 2. token + pool + escada
@@ -80,32 +89,34 @@ contract Publicar is Script {
                     vm.parseJsonUint(json, string.concat(p, ".quantidade"))
                 );
             }
-            pool.lancar(vm.envBytes32("SALT_TOKEN"), _initToken(pPool, eu), tickInicial, fx);
+            pool.lancar(_initToken(pPool, eu), tickInicial, fx);
         }
         AGL t = AGL(Currency.unwrap(pool.token()));
         // 3. registro e escrow
         address pReg = _endereco(eu, vm.envBytes32("SALT_REGISTRO"));
         if (pReg.code.length == 0) {
-            ICreateX(CREATEX).deployCreate3(
-                vm.envBytes32("SALT_REGISTRO"),
-                abi.encodePacked(
-                    type(RegistroAGL).creationCode,
-                    abi.encode(IPoolAGLLeitura(pPool), DONO, eu, DONO, TickMath.getSqrtPriceAtTick(tickInicial))
-                )
-            );
+            ICreateX(CREATEX)
+                .deployCreate3(
+                    vm.envBytes32("SALT_REGISTRO"),
+                    abi.encodePacked(
+                        type(RegistroAGL).creationCode,
+                        abi.encode(IPoolAGLLeitura(pPool), DONO, eu, DONO, TickMath.getSqrtPriceAtTick(tickInicial))
+                    )
+                );
         }
         RegistroAGL reg = RegistroAGL(pReg);
         address pEsc = _endereco(eu, vm.envBytes32("SALT_ESCROW"));
         if (pEsc.code.length == 0) {
             address[] memory moedas = new address[](1);
             moedas[0] = moeda;
-            ICreateX(CREATEX).deployCreate3(
-                vm.envBytes32("SALT_ESCROW"),
-                abi.encodePacked(
-                    type(EscrowAGL).creationCode,
-                    abi.encode(IRegistro(pReg), DONO, DONO, TAXA_COMPRADOR_BPS, TAXA_VENDEDOR_BPS, moedas)
-                )
-            );
+            ICreateX(CREATEX)
+                .deployCreate3(
+                    vm.envBytes32("SALT_ESCROW"),
+                    abi.encodePacked(
+                        type(EscrowAGL).creationCode,
+                        abi.encode(IRegistro(pReg), DONO, DONO, TAXA_COMPRADOR_BPS, TAXA_VENDEDOR_BPS, moedas)
+                    )
+                );
         }
         // 4. libera no token o registro e, no Ethereum, o endereço do cAGL (camada
         //    confidencial, publicada depois por zama/script/PublicarConfidencial.s.sol)
@@ -130,7 +141,9 @@ contract Publicar is Script {
         if (vm.envOr("LIGAR_PONTE", false) && t.owner() == eu) {
             uint256[] memory outras = vm.envUint("EIDS", ",");
             uint32[] memory eids = new uint32[](outras.length);
-            for (uint256 i; i < outras.length; i++) eids[i] = uint32(outras[i]);
+            for (uint256 i; i < outras.length; i++) {
+                eids[i] = uint32(outras[i]);
+            }
             if (!_redesLigadas(t, eids)) t.ligarRedesEVM(eids);
             _fixarPonte(t, eids);
         }
@@ -195,7 +208,9 @@ contract Publicar is Script {
 
     /// Na ULN, contagem 0 = "use o padrão": troca por NIL para fixar "nenhum".
     function _explicita(UlnConfig memory c) internal pure returns (UlnConfig memory) {
-        require(c.confirmations > 0 && c.requiredDVNCount > 0 && c.requiredDVNCount != NIL_DVN, "ULN sem padrao fixavel");
+        require(
+            c.confirmations > 0 && c.requiredDVNCount > 0 && c.requiredDVNCount != NIL_DVN, "ULN sem padrao fixavel"
+        );
         if (c.optionalDVNCount == 0) {
             c.optionalDVNCount = NIL_DVN;
             c.optionalDVNThreshold = 0;

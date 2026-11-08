@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity 0.8.38;
 
 /// Parte da CreateX (0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed) usada aqui.
 interface ICreateX {
