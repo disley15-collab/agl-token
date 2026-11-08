@@ -85,6 +85,7 @@ contract InvariantesTest is BaseAGL {
         supply0 = t.totalSupply();
         agente = new Agente(t, pool, router, MOEDA, 10 ** casasMoeda);
         targetContract(address(agente));
+        targetSender(makeAddr("operador")); // remetente fixo: o handler já usa contas fixas (menos consultas ao fork)
     }
 
     /// A liquidez de nenhum degrau diminui.

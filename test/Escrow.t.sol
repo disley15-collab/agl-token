@@ -620,6 +620,7 @@ contract EscrowInvariantes is EscrowBase {
         super.setUp();
         ator = new Ator(esc, MOEDA, comp, vend, sup, reg);
         targetContract(address(ator));
+        targetSender(makeAddr("operador")); // remetente fixo: o handler já usa contas fixas (menos consultas ao fork)
     }
 
     /// O caixa sempre bate: nada some, nada sobra.
