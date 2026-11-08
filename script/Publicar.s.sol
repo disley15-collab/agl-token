@@ -61,7 +61,10 @@ contract Publicar is Script {
         if (pPool.code.length == 0) {
             ICreateX(CREATEX).deployCreate3(
                 vm.envBytes32("SALT_POOL"),
-                abi.encodePacked(type(PoolAGL).creationCode, abi.encode(IPoolManager(pm), eu, moeda, DONO, eu))
+                abi.encodePacked(
+                    type(PoolAGL).creationCode,
+                    abi.encode(IPoolManager(pm), eu, moeda, DONO, eu, keccak256(_initToken(pPool, eu)))
+                )
             );
         }
         PoolAGL pool = PoolAGL(pPool);
@@ -77,7 +80,7 @@ contract Publicar is Script {
                     vm.parseJsonUint(json, string.concat(p, ".quantidade"))
                 );
             }
-            pool.lancar(vm.envBytes32("SALT_TOKEN"), tickInicial, fx);
+            pool.lancar(vm.envBytes32("SALT_TOKEN"), _initToken(pPool, eu), tickInicial, fx);
         }
         AGL t = AGL(Currency.unwrap(pool.token()));
         // 3. registro e escrow
@@ -150,6 +153,11 @@ contract Publicar is Script {
         console2.log("token", address(t));
         console2.log("registro", pReg);
         console2.log("escrow", pEsc);
+    }
+
+    /// Código de criação exato do AGL (o mesmo cujo hash a PoolAGL guarda).
+    function _initToken(address _pool, address _eu) internal pure returns (bytes memory) {
+        return abi.encodePacked(type(AGL).creationCode, abi.encode(_pool, _eu, EP, _eu));
     }
 
     function _redesLigadas(AGL _t, uint32[] memory _eids) internal view returns (bool) {

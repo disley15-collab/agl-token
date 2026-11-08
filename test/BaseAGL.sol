@@ -61,8 +61,25 @@ abstract contract BaseAGL is Test {
         router = new PoolSwapTest(PM);
     }
 
+    address constant ENDPOINT_LZ = 0x1a44076050125825900e736c501f859c50fE728c;
+
+    function _poolPrevista() internal view returns (address) {
+        return ICreateX(CREATEX).computeCreate3Address(keccak256(abi.encode(DEPLOYER, SALT_POOL)));
+    }
+
+    /// Código de criação exato do AGL para a pool `_pool` (guardião = DONO nos testes).
+    function _initToken(address _pool) internal pure returns (bytes memory) {
+        return abi.encodePacked(type(AGL).creationCode, abi.encode(_pool, DONO, ENDPOINT_LZ, DEPLOYER));
+    }
+
+    function _initToken() internal view returns (bytes memory) {
+        return _initToken(address(pool));
+    }
+
     function _publicarPool() internal returns (PoolAGL) {
-        bytes memory init = abi.encodePacked(type(PoolAGL).creationCode, abi.encode(PM, DEPLOYER, MOEDA, DONO, DONO));
+        bytes memory init = abi.encodePacked(
+            type(PoolAGL).creationCode, abi.encode(PM, DEPLOYER, MOEDA, DONO, DONO, keccak256(_initToken(_poolPrevista())))
+        );
         vm.prank(DEPLOYER);
         return PoolAGL(ICreateX(CREATEX).deployCreate3(SALT_POOL, init));
     }
@@ -104,9 +121,12 @@ abstract contract BaseAGL is Test {
         json = _escada(_enderecoToken());
         PoolAGL.Faixa[] memory fx = _faixas();
         vm.prank(DEPLOYER);
-        pool.lancar(_saltToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
+        pool.lancar(_saltToken(), _initToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
         t = AGL(Currency.unwrap(pool.token()));
         assertEq(address(t), _enderecoToken(), "endereco do token previsto");
+        // EIP-170: a rede recusa contrato acima de 24.576 bytes (o teste local não recusa)
+        assertLe(address(pool).code.length, 24_576, "PoolAGL cabe no limite da EIP-170");
+        assertLe(address(t).code.length, 24_576, "AGL cabe no limite da EIP-170");
     }
 
     function _unid(uint256 _usd) internal view returns (uint256) {

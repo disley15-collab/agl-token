@@ -16,7 +16,9 @@ import { Hooks } from "v4-core/libraries/Hooks.sol";
 import { TransientStateLibrary } from "v4-core/libraries/TransientStateLibrary.sol";
 import { LiquidityAmounts } from "v4-periphery/libraries/LiquidityAmounts.sol";
 import { ICreateX } from "./ICreateX.sol";
-import { AGL } from "./AGL.sol";
+interface IAGLSupply {
+    function SUPPLY_POR_REDE() external view returns (uint256);
+}
 
 /// @title PoolAGL — publica o AGL e a pool oficial dele (Uniswap v4, AGL/USDC, taxa 2%)
 /// na MESMA transação, com 100% do supply da rede na escada e a liquidez travada PARA SEMPRE.
@@ -68,6 +70,10 @@ contract PoolAGL is IUnlockCallback {
     address public immutable lancador;
     Currency public immutable moeda;
     address public immutable guardiaoToken;
+    /// @notice keccak256 do código de criação EXATO do AGL (código + argumentos). Gravado na
+    /// criação da pool: `lancar` só publica um token com este código (a pool não carrega o
+    /// código do token dentro dela — limite de 24 KB da EIP-170).
+    bytes32 public immutable hashInitToken;
 
     Currency public token;
     address public recebedorTaxas;
@@ -94,6 +100,7 @@ contract PoolAGL is IUnlockCallback {
     error LiquidezZero(uint256 faixa);
     error ForaDaCota(uint256 pedido, int256 cota);
     error SaltSemProtecao();
+    error CodigoDoTokenErrado();
 
     event Lancado(address indexed token, PoolId indexed id, uint256 faixas, uint256 tokens);
     event TaxasColetadas(uint256 emToken, uint256 emMoeda);
@@ -105,7 +112,8 @@ contract PoolAGL is IUnlockCallback {
         address _lancador,
         address _moeda,
         address _recebedorTaxas,
-        address _guardiaoToken
+        address _guardiaoToken,
+        bytes32 _hashInitToken
     ) {
         if (uint160(address(this)) & Hooks.ALL_HOOK_MASK != BITS_HOOK) revert EnderecoDeHookErrado();
         if (
@@ -117,6 +125,7 @@ contract PoolAGL is IUnlockCallback {
         moeda = Currency.wrap(_moeda);
         recebedorTaxas = _recebedorTaxas;
         guardiaoToken = _guardiaoToken;
+        hashInitToken = _hashInitToken;
     }
 
     function tokenEhMoeda0() public view returns (bool) {
@@ -210,21 +219,22 @@ contract PoolAGL is IUnlockCallback {
     /// @notice Publica o token, cria a pool no `_tickInicial` e deposita a escada inteira.
     /// Todo degrau tem de ficar inteiro do lado do token (acima do preço inicial). O último
     /// degrau recebe tudo o que sobrar: a pool fica com 100% do supply da rede.
-    function lancar(bytes32 _saltToken, int24 _tickInicial, Faixa[] calldata _faixas) external {
+    function lancar(bytes32 _saltToken, bytes calldata _initToken, int24 _tickInicial, Faixa[] calldata _faixas)
+        external
+    {
         if (msg.sender != lancador) revert SoLancador();
         if (lancado) revert JaLancado();
         if (_faixas.length == 0) revert EscadaVazia();
         // salt protegido: 20 primeiros bytes = este contrato, byte 21 = 0x00 (mesmo endereço
         // em toda rede e ninguém mais publica nele)
         if (address(bytes20(_saltToken)) != address(this) || _saltToken[20] != 0x00) revert SaltSemProtecao();
+        if (keccak256(_initToken) != hashInitToken) revert CodigoDoTokenErrado();
         lancado = true;
 
-        address t = CREATEX.deployCreate3(
-            _saltToken, abi.encodePacked(type(AGL).creationCode, abi.encode(address(this), guardiaoToken, ENDPOINT_LZ, lancador))
-        );
+        address t = CREATEX.deployCreate3(_saltToken, _initToken);
         token = Currency.wrap(t);
         uint256 saldo = IERC20(t).balanceOf(address(this));
-        if (saldo != AGL(t).SUPPLY_POR_REDE()) revert TokenNaoRecebido();
+        if (saldo != IAGLSupply(t).SUPPLY_POR_REDE()) revert TokenNaoRecebido();
 
         bool t0 = tokenEhMoeda0();
         uint256 soma;

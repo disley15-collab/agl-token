@@ -51,6 +51,8 @@ contract EscrowBase is BaseAGL {
         address[] memory m = new address[](1);
         m[0] = MOEDA;
         esc = new EscrowAGL(IRegistro(address(reg)), taxas, sup, 100, 200, m);
+        assertLe(address(esc).code.length, 24_576, "Escrow cabe no limite da EIP-170");
+        assertLe(address(reg).code.length, 24_576, "Registro cabe no limite da EIP-170");
         address[] memory c = new address[](2);
         (c[0], c[1]) = (comp, vend);
         vm.prank(atest);

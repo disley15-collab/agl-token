@@ -30,7 +30,8 @@ interface IPoolAGL {
 /// 3. Nenhum contrato com "cara de pool do AGL" (ver `_parecePoolDoAgl`: Uniswap/Pancake
 ///    v2/v3, Aerodrome, Curve, LFJ, Maverick, iZiSwap, DODO e clones) recebe AGL, a não ser
 ///    que o guardião o tenha liberado (as pools que o próprio emissor criar).
-/// Carteiras, agregadores, roteadores e carteiras inteligentes recebem normalmente.
+/// Carteiras (inclusive EIP-7702), agregadores, roteadores e carteiras inteligentes recebem
+/// normalmente.
 ///
 /// @dev Invariantes (provados em test/):
 /// 1. Cada rede cria 1e30 unidades uma vez, no construtor, todas para a pool. Depois disso o
@@ -170,18 +171,9 @@ contract AGL is OFT, ERC20Permit {
         return ok && r.length == 32 && abi.decode(r, (uint256)) == uint256(uint160(address(this)));
     }
 
-    /// Contrato = tem código e NÃO é carteira comum delegada por EIP-7702
-    /// (código de 23 bytes começando com 0xef0100).
+    /// Contrato = tem código. Contas EIP-7702 (código 0xef0100 || alvo) também passam pela
+    /// sonda: delegadas a uma carteira normal recebem; delegadas a código de pool, não.
     function _ehContrato(address _a) internal view returns (bool) {
-        uint256 n = _a.code.length;
-        if (n == 0) return false;
-        if (n != 23) return true;
-        bytes3 prefixo;
-        assembly {
-            let p := mload(0x40)
-            extcodecopy(_a, p, 0, 3)
-            prefixo := mload(p)
-        }
-        return prefixo != 0xef0100;
+        return _a.code.length > 0;
     }
 }

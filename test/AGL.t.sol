@@ -105,12 +105,12 @@ contract AGLTest is BaseAGL {
         int24 ti = int24(vm.parseJsonInt(json, ".tickInicial"));
         vm.prank(atacante);
         vm.expectRevert(PoolAGL.SoLancador.selector);
-        pool.lancar(_saltToken(), ti, fx);
+        pool.lancar(_saltToken(), _initToken(), ti, fx);
         vm.prank(DEPLOYER);
-        pool.lancar(_saltToken(), ti, fx);
+        pool.lancar(_saltToken(), _initToken(), ti, fx);
         vm.prank(DEPLOYER);
         vm.expectRevert(PoolAGL.JaLancado.selector);
-        pool.lancar(_saltToken(), ti, fx);
+        pool.lancar(_saltToken(), _initToken(), ti, fx);
     }
 
     function test_degrau_abaixo_do_preco_recusado() public {
@@ -121,7 +121,7 @@ contract AGLTest is BaseAGL {
         bool t0 = _enderecoToken() < MOEDA;
         vm.prank(DEPLOYER);
         vm.expectRevert(abi.encodeWithSelector(PoolAGL.FaixaFora.selector, uint256(0)));
-        pool.lancar(_saltToken(), t0 ? ti + 10 : ti - 10, fx);
+        pool.lancar(_saltToken(), _initToken(), t0 ? ti + 10 : ti - 10, fx);
     }
 
     function test_ultimo_degrau_recebe_a_sobra() public {
@@ -130,7 +130,7 @@ contract AGLTest is BaseAGL {
         PoolAGL.Faixa[] memory fx = _faixas();
         fx[fx.length - 1].quantidade = 1;
         vm.prank(DEPLOYER);
-        pool.lancar(_saltToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
+        pool.lancar(_saltToken(), _initToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
         PoolAGL.Faixa[] memory g = pool.todasAsFaixas();
         uint256 soma;
         for (uint256 i; i < g.length; i++) soma += g[i].quantidade;
@@ -144,12 +144,23 @@ contract AGLTest is BaseAGL {
         bytes32 semProtecao = bytes32(uint256(_saltToken()) & ((1 << 96) - 1)); // 20 bytes zerados
         vm.prank(DEPLOYER);
         vm.expectRevert(PoolAGL.SaltSemProtecao.selector);
-        pool.lancar(semProtecao, int24(vm.parseJsonInt(json, ".tickInicial")), fx);
+        pool.lancar(semProtecao, _initToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
+    }
+
+    /// A pool só publica o código EXATO do AGL (hash gravado na criação dela).
+    function test_codigo_do_token_errado_recusado() public {
+        pool = _publicarPool();
+        json = _escada(_enderecoToken());
+        PoolAGL.Faixa[] memory fx = _faixas();
+        bytes memory falso = abi.encodePacked(type(AGL).creationCode, abi.encode(address(pool), atacante, ENDPOINT_LZ, atacante));
+        vm.prank(DEPLOYER);
+        vm.expectRevert(PoolAGL.CodigoDoTokenErrado.selector);
+        pool.lancar(_saltToken(), falso, int24(vm.parseJsonInt(json, ".tickInicial")), fx);
     }
 
     function test_endereco_de_hook_errado_recusado() public {
         vm.expectRevert(PoolAGL.EnderecoDeHookErrado.selector);
-        new PoolAGL(PM, DEPLOYER, MOEDA, DONO, DONO);
+        new PoolAGL(PM, DEPLOYER, MOEDA, DONO, DONO, bytes32(0));
     }
 
     function test_atacante_nao_toma_endereco_do_token() public {
@@ -166,7 +177,7 @@ contract AGLTest is BaseAGL {
         json = _escada(_enderecoToken());
         PoolAGL.Faixa[] memory fx = _faixas();
         vm.prank(DEPLOYER);
-        pool.lancar(_saltToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
+        pool.lancar(_saltToken(), _initToken(), int24(vm.parseJsonInt(json, ".tickInicial")), fx);
         t = AGL(Currency.unwrap(pool.token()));
     }
 
@@ -382,6 +393,18 @@ contract AGLTest is BaseAGL {
         t.transfer(delegada, r / 4);
         vm.stopPrank();
         assertEq(t.balanceOf(delegada), r / 4);
+    }
+
+    /// EIP-7702: conta delegada a carteira normal recebe; delegada a código de pool do AGL não.
+    function test_7702_delegada_a_pool_e_bloqueada() public {
+        _lancar();
+        uint256 r = _comprar(atacante, _unid(100));
+        PoolCurveAGL codigoDePool = new PoolCurveAGL(address(t)); // coins(0) = AGL (immutable)
+        address conta = makeAddr("conta7702-amm");
+        vm.etch(conta, abi.encodePacked(hex"ef0100", address(codigoDePool)));
+        vm.prank(atacante);
+        vm.expectRevert(abi.encodeWithSelector(AGL.PoolNaoAutorizada.selector, conta));
+        t.transfer(conta, r);
     }
 
     /// Guardião só ADICIONA à lista (ex.: a pool v3 do próprio emissor); não bloqueia ninguém.
