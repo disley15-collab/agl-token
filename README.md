@@ -1,6 +1,6 @@
 # AgroLastro (AGL)
 
-Utility token and contracts of **AgroLastro** by Solidity Brasil: a non-custodial stablecoin escrow for agricultural trade across Portuguese-speaking countries.
+Utility token and contracts of **AgroLastro**, a service by **Solidity Brasil** (https://soliditybrasil.com.br): a non-custodial stablecoin escrow for agricultural trade across Portuguese-speaking countries.
 
 > Not affiliated with *Apex Gold Ledger*, which also uses the ticker AGL. Always check the name **AgroLastro** and the address below.
 
@@ -26,6 +26,6 @@ forge build
 forge test
 ```
 
-Site: https://sdbr.soliditybrasil.com.br/agl/ · Telegram: https://t.me/agrolastro · Contact: t.me/agrolastro
+Site: https://agl-token.vercel.app · Token page: https://sdbr.soliditybrasil.com.br/agl/ · Telegram: https://t.me/agrolastro
 
 License: MIT

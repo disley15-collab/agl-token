@@ -1,7 +1,7 @@
 # Segurança — AgroLastro (AGL)
 
 ## Contato
-Relatos de vulnerabilidade: **t.me/agrolastro** (assunto: `[AGL] segurança`).
+Relatos de vulnerabilidade: use o relato privado do GitHub (aba **Security → Report a vulnerability** deste repositório) ou o canal oficial https://t.me/agrolastro.
 Não abra issue pública antes de uma correção. Resposta inicial em até 72 h.
 
 ## Escopo

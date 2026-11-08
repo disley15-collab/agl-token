@@ -39,7 +39,7 @@ a{{color:var(--ac)}}ul{{padding-left:20px}}.links a{{margin-right:16px;white-spa
 <tr><td>Escrow</td><td><code>{E}</code></td></tr>
 <tr><td>cAGL confidencial (Ethereum)</td><td><code>{C}</code></td></tr></table></div>
 <h2>Comunidade</h2><p class="links"><a href="https://t.me/agrolastro">Telegram: canal oficial</a><a href="https://t.me/agrolastro_comunidade">Telegram: comunidade</a><a href="/token.json">token.json</a><a href="/tokenlist.json">token list</a></p>
-<h2>Quem está por trás</h2><p>Solidity Brasil (<a href="https://soliditybrasil.com.br">soliditybrasil.com.br</a>). Contato: <a href="mailto:t.me/agrolastro">t.me/agrolastro</a> · Telegram <a href="https://t.me/agrolastro">@agrolastro</a>.</p>
+<h2>Quem está por trás</h2><p>A AgroLastro é um serviço da Solidity Brasil (<a href="https://soliditybrasil.com.br">soliditybrasil.com.br</a>). Contato pelo canal oficial <a href="https://t.me/agrolastro">t.me/agrolastro</a> e pelo site <a href="https://agl-token.vercel.app/#cadastro">agl-token.vercel.app</a>.</p>
 <footer>A equipe nunca pede chave privada, frase de recuperação nem envia "airdrop" por mensagem. O AGL é um token de utilidade: não é investimento nem promessa de valorização.</footer>
 </main></body></html>'''
 open('index.html','w').write(html)
